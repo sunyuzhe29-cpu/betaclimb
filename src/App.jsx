@@ -333,7 +333,7 @@ export default function App() {
           <section className="intro-band">
             <div>
               <p className="eyebrow">我的攀岩地图</p>
-              <h1>概况、日历、岩馆。</h1>
+              <h1>攀岩日历</h1>
             </div>
             <button className="primary-btn" type="button" onClick={handleCreateGym}>
               <Plus size={18} />
