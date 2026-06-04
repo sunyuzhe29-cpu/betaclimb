@@ -7,7 +7,11 @@ import {
   ChevronRight,
   Dumbbell,
   ImagePlus,
+  Lock,
+  LogIn,
+  LogOut,
   MapPin,
+  Mail,
   Pencil,
   PlaySquare,
   Plus,
@@ -15,11 +19,13 @@ import {
   Timer,
   Trash2,
   Upload,
+  UserPlus,
   Video,
+  X,
 } from 'lucide-react';
 import './App.css';
-
-const STORAGE_KEY = 'betaclimb:gyms:v1';
+import { useAuth } from './context/AuthContext';
+import { supabase } from './lib/supabaseClient';
 
 const gymImage = (base, accent, label) =>
   `data:image/svg+xml,${encodeURIComponent(`
@@ -35,6 +41,9 @@ const gymImage = (base, accent, label) =>
     </svg>
   `)}`;
 
+const STORAGE_PREFIX = 'betaclimb:gyms';
+const GUEST_STORAGE_KEY = `${STORAGE_PREFIX}:guest`;
+
 const fileToDataUrl = (file) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -44,9 +53,9 @@ const fileToDataUrl = (file) =>
     reader.readAsDataURL(file);
   });
 
-const loadStoredGyms = () => {
+const readStoredGyms = (storageKey) => {
   try {
-    const storedValue = window.localStorage.getItem(STORAGE_KEY);
+    const storedValue = window.localStorage.getItem(storageKey);
     if (!storedValue) return [];
 
     const parsedValue = JSON.parse(storedValue);
@@ -105,22 +114,173 @@ const formatMonthLabel = (monthKey) => {
   return `${year} 年 ${Number(month)} 月`;
 };
 
+function AuthModal({ isOpen, onClose }) {
+  const [mode, setMode] = useState('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setMessage('');
+  }, [isOpen, mode]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setMessage('');
+
+    if (!supabase) {
+      setMessage('请先配置 VITE_SUPABASE_URL 和 VITE_SUPABASE_ANON_KEY。');
+      return;
+    }
+
+    setIsSubmitting(true);
+    const authCall =
+      mode === 'login'
+        ? supabase.auth.signInWithPassword({ email, password })
+        : supabase.auth.signUp({ email, password });
+    const { error } = await authCall;
+    setIsSubmitting(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    if (mode === 'register') {
+      setMessage('注册成功。若 Supabase 开启了邮件确认，请去邮箱点确认链接后再登录。');
+      return;
+    }
+
+    onClose();
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="modal-close" type="button" onClick={onClose} aria-label="关闭登录弹窗">
+          <X size={18} />
+        </button>
+        <div className="auth-heading">
+          <p className="eyebrow">BetaClimb 账户</p>
+          <h2 id="auth-title">{mode === 'login' ? '欢迎回来' : '创建新账户'}</h2>
+        </div>
+
+        <div className="auth-tabs" role="tablist" aria-label="登录注册切换">
+          <button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => setMode('login')}>
+            <LogIn size={16} />
+            邮箱密码登录
+          </button>
+          <button className={mode === 'register' ? 'active' : ''} type="button" onClick={() => setMode('register')}>
+            <UserPlus size={16} />
+            新用户注册
+          </button>
+        </div>
+
+        <form className="auth-form" onSubmit={handleSubmit}>
+          <label className="field">
+            <span>
+              <Mail size={16} />
+              邮箱
+            </span>
+            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
+          </label>
+          <label className="field">
+            <span>
+              <Lock size={16} />
+              密码
+            </span>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              minLength={6}
+              required
+            />
+          </label>
+          <button className="primary-btn auth-submit" type="submit" disabled={isSubmitting}>
+            {mode === 'login' ? <LogIn size={18} /> : <UserPlus size={18} />}
+            {isSubmitting ? '处理中...' : mode === 'login' ? '登录' : '注册'}
+          </button>
+        </form>
+
+        {message ? <p className="auth-message">{message}</p> : null}
+      </section>
+    </div>
+  );
+}
+
+function UserMenu({ onOpenAuth }) {
+  const { isAuthLoading, user } = useAuth();
+
+  const handleSignOut = async () => {
+    await supabase?.auth.signOut();
+  };
+
+  if (isAuthLoading) {
+    return <span className="auth-loading">同步账户...</span>;
+  }
+
+  if (!user) {
+    return (
+      <button className="primary-btn auth-entry" type="button" onClick={onOpenAuth}>
+        <LogIn size={18} />
+        登录/注册
+      </button>
+    );
+  }
+
+  const initial = (user.email || 'U').slice(0, 1).toUpperCase();
+
+  return (
+    <div className="user-menu" aria-label="当前登录用户">
+      <span className="user-avatar" aria-hidden="true">
+        {initial}
+      </span>
+      <span className="user-email">{user.email}</span>
+      <button className="ghost-btn icon-only" type="button" onClick={handleSignOut} aria-label="退出登录">
+        <LogOut size={17} />
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
-  const [gyms, setGyms] = useState(loadStoredGyms);
+  const { user } = useAuth();
+  const [gyms, setGyms] = useState([]);
   const [activeGymId, setActiveGymId] = useState('');
   const [activeRouteId, setActiveRouteId] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [isEditingGym, setIsEditingGym] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState('');
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [loadedStorageKey, setLoadedStorageKey] = useState('');
   const [selectedCalendarDate, setSelectedCalendarDate] = useState('');
   const [calendarMonth, setCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const routePhotoInputRef = useRef(null);
   const gymPhotoInputRef = useRef(null);
   const betaVideoInputRef = useRef(null);
+  const storageKey = user?.id ? `${STORAGE_PREFIX}:${user.id}` : GUEST_STORAGE_KEY;
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(gyms));
-  }, [gyms]);
+    const nextGyms = readStoredGyms(storageKey);
+    setGyms(nextGyms);
+    setActiveGymId('');
+    setActiveRouteId('');
+    setIsEditing(false);
+    setIsEditingGym(false);
+    setAiAnalysis('');
+    setLoadedStorageKey(storageKey);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (loadedStorageKey !== storageKey) return;
+    window.localStorage.setItem(storageKey, JSON.stringify(gyms));
+  }, [gyms, loadedStorageKey, storageKey]);
 
   const activeGym = useMemo(
     () => gyms.find((gym) => gym.id === activeGymId) || null,
@@ -280,11 +440,11 @@ export default function App() {
     event.target.value = '';
   };
 
-  const handleBetaVideo = (event) => {
+  const handleBetaVideo = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    updateRoute({ betaVideoUrl: URL.createObjectURL(file) });
+    updateRoute({ betaVideoUrl: await fileToDataUrl(file) });
     setAiAnalysis('');
     event.target.value = '';
   };
@@ -321,12 +481,16 @@ export default function App() {
           </span>
         </button>
 
-        <div className="summary-strip" aria-label="记录统计">
-          <span>{gyms.length} 个岩馆</span>
-          <span>{totalRoutes} 条线路</span>
-          <span>{sentRoutes} 条已过线</span>
+        <div className="topbar-actions">
+          <div className="summary-strip" aria-label="记录统计">
+            <span>{gyms.length} 个岩馆</span>
+            <span>{totalRoutes} 条线路</span>
+            <span>{sentRoutes} 条已过线</span>
+          </div>
+          <UserMenu onOpenAuth={() => setIsAuthModalOpen(true)} />
         </div>
       </header>
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
 
       {!activeGym ? (
         <main className="home-view">
