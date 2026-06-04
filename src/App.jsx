@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Bot,
@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import './App.css';
 
+const STORAGE_KEY = 'betaclimb:gyms:v1';
+
 const gymImage = (base, accent, label) =>
   `data:image/svg+xml,${encodeURIComponent(`
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540">
@@ -33,7 +35,26 @@ const gymImage = (base, accent, label) =>
     </svg>
   `)}`;
 
-const makeObjectUrl = (file) => (file ? URL.createObjectURL(file) : '');
+const fileToDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error(`文件读取失败：${file.name}`));
+    reader.readAsDataURL(file);
+  });
+
+const loadStoredGyms = () => {
+  try {
+    const storedValue = window.localStorage.getItem(STORAGE_KEY);
+    if (!storedValue) return [];
+
+    const parsedValue = JSON.parse(storedValue);
+    return Array.isArray(parsedValue) ? parsedValue : [];
+  } catch {
+    return [];
+  }
+};
 
 const getSentEntries = (gyms) =>
   gyms.flatMap((gym) =>
@@ -85,7 +106,7 @@ const formatMonthLabel = (monthKey) => {
 };
 
 export default function App() {
-  const [gyms, setGyms] = useState([]);
+  const [gyms, setGyms] = useState(loadStoredGyms);
   const [activeGymId, setActiveGymId] = useState('');
   const [activeRouteId, setActiveRouteId] = useState('');
   const [isEditing, setIsEditing] = useState(false);
@@ -96,6 +117,10 @@ export default function App() {
   const routePhotoInputRef = useRef(null);
   const gymPhotoInputRef = useRef(null);
   const betaVideoInputRef = useRef(null);
+
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(gyms));
+  }, [gyms]);
 
   const activeGym = useMemo(
     () => gyms.find((gym) => gym.id === activeGymId) || null,
@@ -184,11 +209,11 @@ export default function App() {
     setIsEditingGym(false);
   };
 
-  const handleGymPhoto = (event) => {
+  const handleGymPhoto = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    updateActiveGym({ imageUrl: makeObjectUrl(file) });
+    updateActiveGym({ imageUrl: await fileToDataUrl(file) });
     event.target.value = '';
   };
 
@@ -229,12 +254,12 @@ export default function App() {
     setAiAnalysis('');
   };
 
-  const handleAddRoutePhoto = (event) => {
+  const handleAddRoutePhoto = async (event) => {
     if (!activeGym) return;
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const imageUrl = makeObjectUrl(file);
+    const imageUrl = await fileToDataUrl(file);
     const nextRoute = {
       id: `${Date.now()}-${file.name}`,
       name: `未命名线路 ${activeGym.routes.length + 1}`,
@@ -259,7 +284,7 @@ export default function App() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    updateRoute({ betaVideoUrl: makeObjectUrl(file) });
+    updateRoute({ betaVideoUrl: URL.createObjectURL(file) });
     setAiAnalysis('');
     event.target.value = '';
   };
