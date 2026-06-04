@@ -140,6 +140,8 @@ const getAuthMessage = (error) => {
   return message;
 };
 
+const getAuthRedirectUrl = () => window.location.origin;
+
 function AuthModal({ isOpen, onClose }) {
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
@@ -174,7 +176,13 @@ function AuthModal({ isOpen, onClose }) {
       const { data, error } =
         mode === 'login'
           ? await supabase.auth.signInWithPassword({ email: normalizedEmail, password })
-          : await supabase.auth.signUp({ email: normalizedEmail, password });
+          : await supabase.auth.signUp({
+              email: normalizedEmail,
+              password,
+              options: {
+                emailRedirectTo: getAuthRedirectUrl(),
+              },
+            });
 
       if (error) {
         setMessage(getAuthMessage(error));
