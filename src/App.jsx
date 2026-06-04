@@ -24,7 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import './App.css';
-import { useAuth } from './context/AuthContext';
+import { useAuth } from './context/useAuth';
 import { supabase } from './lib/supabaseClient';
 
 const gymImage = (base, accent, label) =>
@@ -114,6 +114,32 @@ const formatMonthLabel = (monthKey) => {
   return `${year} 年 ${Number(month)} 月`;
 };
 
+const getAuthMessage = (error) => {
+  const message = error?.message || '登录服务暂时不可用，请稍后再试。';
+
+  if (message.includes('Invalid login credentials')) {
+    return '邮箱或密码不正确，请检查后再试。';
+  }
+
+  if (message.includes('Email not confirmed')) {
+    return '这个邮箱还没有完成确认，请先打开确认邮件。';
+  }
+
+  if (message.includes('User already registered')) {
+    return '这个邮箱已经注册过了，请切换到登录。';
+  }
+
+  if (message.includes('Password should be at least')) {
+    return '密码长度不够，请至少输入 6 位。';
+  }
+
+  if (message.includes('Failed to fetch') || message.includes('NetworkError')) {
+    return '连接 Supabase 失败，请检查网络和 Supabase 项目配置。';
+  }
+
+  return message;
+};
+
 function AuthModal({ isOpen, onClose }) {
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
@@ -121,16 +147,22 @@ function AuthModal({ isOpen, onClose }) {
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    setMessage('');
-  }, [isOpen, mode]);
-
   if (!isOpen) return null;
+
+  const switchMode = (nextMode) => {
+    setMode(nextMode);
+    setMessage('');
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setMessage('');
+
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setMessage('请输入邮箱。');
+      return;
+    }
 
     if (!supabase) {
       setMessage('请先配置 VITE_SUPABASE_URL 和 VITE_SUPABASE_ANON_KEY。');
@@ -138,24 +170,28 @@ function AuthModal({ isOpen, onClose }) {
     }
 
     setIsSubmitting(true);
-    const authCall =
-      mode === 'login'
-        ? supabase.auth.signInWithPassword({ email, password })
-        : supabase.auth.signUp({ email, password });
-    const { error } = await authCall;
-    setIsSubmitting(false);
+    try {
+      const { data, error } =
+        mode === 'login'
+          ? await supabase.auth.signInWithPassword({ email: normalizedEmail, password })
+          : await supabase.auth.signUp({ email: normalizedEmail, password });
 
-    if (error) {
-      setMessage(error.message);
-      return;
+      if (error) {
+        setMessage(getAuthMessage(error));
+        return;
+      }
+
+      if (mode === 'register' && !data.session) {
+        setMessage('注册成功。请去邮箱点确认链接，确认后再回来登录。');
+        return;
+      }
+
+      onClose();
+    } catch (error) {
+      setMessage(getAuthMessage(error));
+    } finally {
+      setIsSubmitting(false);
     }
-
-    if (mode === 'register') {
-      setMessage('注册成功。若 Supabase 开启了邮件确认，请去邮箱点确认链接后再登录。');
-      return;
-    }
-
-    onClose();
   };
 
   return (
@@ -170,11 +206,11 @@ function AuthModal({ isOpen, onClose }) {
         </div>
 
         <div className="auth-tabs" role="tablist" aria-label="登录注册切换">
-          <button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => setMode('login')}>
+          <button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => switchMode('login')}>
             <LogIn size={16} />
             邮箱密码登录
           </button>
-          <button className={mode === 'register' ? 'active' : ''} type="button" onClick={() => setMode('register')}>
+          <button className={mode === 'register' ? 'active' : ''} type="button" onClick={() => switchMode('register')}>
             <UserPlus size={16} />
             新用户注册
           </button>

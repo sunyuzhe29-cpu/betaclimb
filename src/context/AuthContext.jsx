@@ -1,7 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
-
-const AuthContext = createContext(null);
+import { AuthContext } from './authContextValue';
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
@@ -12,11 +11,20 @@ export function AuthProvider({ children }) {
 
     let isMounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!isMounted) return;
-      setSession(data.session);
-      setIsAuthLoading(false);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!isMounted) return;
+        setSession(data.session);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setSession(null);
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setIsAuthLoading(false);
+      });
 
     const {
       data: { subscription },
@@ -42,12 +50,4 @@ export function AuthProvider({ children }) {
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-export function useAuth() {
-  const value = useContext(AuthContext);
-  if (!value) {
-    throw new Error('useAuth must be used inside AuthProvider');
-  }
-  return value;
 }
