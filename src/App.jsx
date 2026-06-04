@@ -43,6 +43,7 @@ const gymImage = (base, accent, label) =>
 
 const STORAGE_PREFIX = 'betaclimb:gyms';
 const GUEST_STORAGE_KEY = `${STORAGE_PREFIX}:guest`;
+const CLOUD_GYMS_TABLE = 'user_gyms';
 
 const fileToDataUrl = (file) =>
   new Promise((resolve, reject) => {
@@ -63,6 +64,21 @@ const readStoredGyms = (storageKey) => {
   } catch {
     return [];
   }
+};
+
+const saveCloudGyms = async (userId, gyms) => {
+  if (!supabase || !userId) return { error: null };
+
+  return supabase
+    .from(CLOUD_GYMS_TABLE)
+    .upsert(
+      {
+        user_id: userId,
+        gyms,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    );
 };
 
 const getSentEntries = (gyms) =>
@@ -360,6 +376,7 @@ export default function App() {
   const [aiAnalysis, setAiAnalysis] = useState('');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [loadedStorageKey, setLoadedStorageKey] = useState('');
+  const [isCloudStorageReady, setIsCloudStorageReady] = useState(false);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState('');
   const [calendarMonth, setCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const routePhotoInputRef = useRef(null);
@@ -368,20 +385,85 @@ export default function App() {
   const storageKey = user?.id ? `${STORAGE_PREFIX}:${user.id}` : GUEST_STORAGE_KEY;
 
   useEffect(() => {
-    const nextGyms = readStoredGyms(storageKey);
-    setGyms(nextGyms);
+    let isActive = true;
+
     setActiveGymId('');
     setActiveRouteId('');
     setIsEditing(false);
     setIsEditingGym(false);
     setAiAnalysis('');
-    setLoadedStorageKey(storageKey);
-  }, [storageKey]);
+    setLoadedStorageKey('');
+    setIsCloudStorageReady(false);
+
+    const loadGyms = async () => {
+      const localGyms = readStoredGyms(storageKey);
+      const guestGyms = user ? readStoredGyms(GUEST_STORAGE_KEY) : [];
+      const fallbackGyms = localGyms.length ? localGyms : guestGyms;
+
+      if (!user || !supabase) {
+        if (!isActive) return;
+        setGyms(localGyms);
+        setLoadedStorageKey(storageKey);
+        setIsCloudStorageReady(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from(CLOUD_GYMS_TABLE)
+        .select('gyms')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!isActive) return;
+
+      if (error) {
+        console.error('读取云端攀岩数据失败', error);
+        setGyms(fallbackGyms);
+        setLoadedStorageKey(storageKey);
+        setIsCloudStorageReady(false);
+        return;
+      }
+
+      const cloudGyms = Array.isArray(data?.gyms) ? data.gyms : null;
+      const nextGyms = cloudGyms || fallbackGyms;
+      setGyms(nextGyms);
+      window.localStorage.setItem(storageKey, JSON.stringify(nextGyms));
+
+      if (!cloudGyms && fallbackGyms.length) {
+        const { error: saveError } = await saveCloudGyms(user.id, fallbackGyms);
+        if (saveError) {
+          console.error('初始化云端攀岩数据失败', saveError);
+        }
+      }
+
+      if (!isActive) return;
+      setLoadedStorageKey(storageKey);
+      setIsCloudStorageReady(true);
+    };
+
+    loadGyms();
+
+    return () => {
+      isActive = false;
+    };
+  }, [storageKey, user]);
 
   useEffect(() => {
     if (loadedStorageKey !== storageKey) return;
     window.localStorage.setItem(storageKey, JSON.stringify(gyms));
-  }, [gyms, loadedStorageKey, storageKey]);
+
+    if (!user || !isCloudStorageReady) return;
+
+    const timeoutId = window.setTimeout(() => {
+      saveCloudGyms(user.id, gyms).then(({ error }) => {
+        if (error) {
+          console.error('保存云端攀岩数据失败', error);
+        }
+      });
+    }, 450);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [gyms, isCloudStorageReady, loadedStorageKey, storageKey, user]);
 
   const activeGym = useMemo(
     () => gyms.find((gym) => gym.id === activeGymId) || null,
