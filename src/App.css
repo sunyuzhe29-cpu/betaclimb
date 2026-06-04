@@ -364,6 +364,23 @@ h2 {
   line-height: 1.5;
 }
 
+.auth-resend {
+  min-height: 34px;
+  margin-top: 10px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: #fffaf0;
+  background: #9a3412;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.auth-resend:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .gym-list {
   display: grid;
   gap: 12px;

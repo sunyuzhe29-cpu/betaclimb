@@ -125,6 +125,10 @@ const getAuthMessage = (error) => {
     return '这个邮箱还没有完成确认，请先打开确认邮件。';
   }
 
+  if (message.includes('rate limit') || message.includes('For security purposes')) {
+    return '确认邮件发送太频繁了，请等一分钟后再试。';
+  }
+
   if (message.includes('User already registered')) {
     return '这个邮箱已经注册过了，请切换到登录。';
   }
@@ -148,17 +152,57 @@ function AuthModal({ isOpen, onClose }) {
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmationEmail, setConfirmationEmail] = useState('');
+  const [isResending, setIsResending] = useState(false);
 
   if (!isOpen) return null;
 
   const switchMode = (nextMode) => {
     setMode(nextMode);
     setMessage('');
+    setConfirmationEmail('');
+  };
+
+  const handleResendConfirmation = async () => {
+    const normalizedEmail = confirmationEmail || email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setMessage('请输入邮箱后再重新发送确认邮件。');
+      return;
+    }
+
+    if (!supabase) {
+      setMessage('请先配置 VITE_SUPABASE_URL 和 VITE_SUPABASE_ANON_KEY。');
+      return;
+    }
+
+    setIsResending(true);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: normalizedEmail,
+        options: {
+          emailRedirectTo: getAuthRedirectUrl(),
+        },
+      });
+
+      if (error) {
+        setMessage(getAuthMessage(error));
+        return;
+      }
+
+      setConfirmationEmail(normalizedEmail);
+      setMessage('确认邮件已重新发送。请检查收件箱、垃圾邮件和促销邮件。');
+    } catch (error) {
+      setMessage(getAuthMessage(error));
+    } finally {
+      setIsResending(false);
+    }
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setMessage('');
+    setConfirmationEmail('');
 
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail) {
@@ -185,11 +229,15 @@ function AuthModal({ isOpen, onClose }) {
             });
 
       if (error) {
+        if (mode === 'login' && error.message.includes('Email not confirmed')) {
+          setConfirmationEmail(normalizedEmail);
+        }
         setMessage(getAuthMessage(error));
         return;
       }
 
       if (mode === 'register' && !data.session) {
+        setConfirmationEmail(normalizedEmail);
         setMessage('注册成功。请去邮箱点确认链接，确认后再回来登录。');
         return;
       }
@@ -252,7 +300,16 @@ function AuthModal({ isOpen, onClose }) {
           </button>
         </form>
 
-        {message ? <p className="auth-message">{message}</p> : null}
+        {message ? (
+          <div className="auth-message">
+            <p>{message}</p>
+            {confirmationEmail ? (
+              <button className="auth-resend" type="button" onClick={handleResendConfirmation} disabled={isResending}>
+                {isResending ? '正在重新发送...' : '重新发送确认邮件'}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </section>
     </div>
   );
