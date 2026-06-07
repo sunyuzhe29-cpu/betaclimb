@@ -942,6 +942,56 @@ h2 {
   gap: 12px;
 }
 
+.public-sync-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -8px 0 18px;
+  padding: 11px 13px;
+  border: 1px solid #d6cec0;
+  border-radius: 8px;
+  color: #374151;
+  background: #fffaf0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.public-sync-status.synced,
+.public-sync-status.ready {
+  border-color: #a7f3d0;
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.public-sync-status.error {
+  border-color: #fecaca;
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.public-sync-status.local {
+  border-color: #fed7aa;
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.public-sync-status span,
+.public-sync-status small {
+  min-width: 0;
+}
+
+.public-sync-status span {
+  font-weight: 900;
+}
+
+.public-sync-status small {
+  color: currentColor;
+  font-weight: 800;
+  opacity: 0.78;
+  white-space: nowrap;
+}
+
 .public-gym-row {
   width: 100%;
   min-height: 76px;
@@ -1181,6 +1231,15 @@ h2 {
   .square-layout,
   .square-post {
     grid-template-columns: 1fr;
+  }
+
+  .public-sync-status {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .public-sync-status small {
+    white-space: normal;
   }
 
   .discussion-panel {

@@ -143,6 +143,23 @@ const toPublicRoutePayload = (user, gym, route) => ({
   updated_at: new Date().toISOString(),
 });
 
+const toPublicRoutePayloadFromLocalRoute = (user, route) => ({
+  user_id: user.id,
+  user_label: user.email || '匿名用户',
+  gym_id: route.gym_id,
+  gym_name: route.gym_name,
+  gym_area: route.gym_area,
+  route_id: route.route_id,
+  route_name: route.route_name,
+  grade: route.grade,
+  sent_at: route.sent_at,
+  route_image_url: route.route_image_url,
+  beta_video_url: route.beta_video_url,
+  notes: route.notes,
+  discussion_prompt: route.discussion_prompt,
+  updated_at: new Date().toISOString(),
+});
+
 const getCurrentMonthRoutes = (routes, monthKey) =>
   routes.filter((route) => (route.sent_at || route.created_at || '').startsWith(monthKey));
 
@@ -256,6 +273,19 @@ function TopNavButton({ active, children, icon: Icon, onClick }) {
   );
 }
 
+function PublicDataStatus({ status }) {
+  if (!status.message) return null;
+
+  return (
+    <div className={`public-sync-status ${status.state}`} role="status">
+      <span>{status.message}</span>
+      <small>
+        Supabase {status.remoteCount} 条 · 本机已同意公开 {status.localCount} 条
+      </small>
+    </div>
+  );
+}
+
 export default function App() {
   const { user } = useAuth();
   const [gyms, setGyms] = useState([]);
@@ -270,6 +300,13 @@ export default function App() {
   const [aiNeed, setAiNeed] = useState('');
   const [aiRecommendation, setAiRecommendation] = useState('');
   const [publicRoutes, setPublicRoutes] = useState([]);
+  const [publicDataStatus, setPublicDataStatus] = useState({
+    state: 'idle',
+    remoteCount: 0,
+    localCount: 0,
+    syncedCount: 0,
+    message: '',
+  });
   const [publicComments, setPublicComments] = useState([]);
   const [commentDraft, setCommentDraft] = useState('');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -360,9 +397,23 @@ export default function App() {
 
     const loadPublicRoutes = async () => {
       const localPublicRoutes = getPublicRoutesFromGyms(gyms, user);
+      setPublicDataStatus({
+        state: 'loading',
+        remoteCount: 0,
+        localCount: localPublicRoutes.length,
+        syncedCount: 0,
+        message: '正在同步公开线路...',
+      });
 
       if (!supabase) {
         setPublicRoutes(localPublicRoutes);
+        setPublicDataStatus({
+          state: 'local',
+          remoteCount: 0,
+          localCount: localPublicRoutes.length,
+          syncedCount: 0,
+          message: '未连接 Supabase，当前只显示本机公开预览。',
+        });
         return;
       }
 
@@ -377,16 +428,56 @@ export default function App() {
       if (error) {
         console.warn('公开线路表还不可用，使用本地公开预览数据。', error);
         setPublicRoutes(localPublicRoutes);
+        setPublicDataStatus({
+          state: 'error',
+          remoteCount: 0,
+          localCount: localPublicRoutes.length,
+          syncedCount: 0,
+          message: '公开数据读取失败，当前只显示本机公开预览。',
+        });
         return;
       }
 
       const remoteRoutes = Array.isArray(data) ? data : [];
-      const localRouteKeys = new Set(localPublicRoutes.map((route) => `${route.user_id}:${route.route_id}`));
+      let syncedRoutes = [];
+
+      if (user && localPublicRoutes.length) {
+        const { data: syncedData, error: syncError } = await supabase
+          .from(PUBLIC_ROUTES_TABLE)
+          .upsert(localPublicRoutes.map((route) => toPublicRoutePayloadFromLocalRoute(user, route)), {
+            onConflict: 'user_id,route_id',
+          })
+          .select('*');
+
+        if (!isActive) return;
+
+        if (syncError) {
+          console.warn('本机公开线路补同步失败。', syncError);
+        } else {
+          syncedRoutes = Array.isArray(syncedData) ? syncedData : [];
+        }
+      }
+
+      const syncedRouteKeys = new Set(syncedRoutes.map((route) => `${route.user_id}:${route.route_id}`));
+      const nextRemoteRoutes = [
+        ...syncedRoutes,
+        ...remoteRoutes.filter((route) => !syncedRouteKeys.has(`${route.user_id}:${route.route_id}`)),
+      ];
+      const remoteRouteKeys = new Set(nextRemoteRoutes.map((route) => `${route.user_id}:${route.route_id}`));
       const mergedRoutes = [
-        ...localPublicRoutes,
-        ...remoteRoutes.filter((route) => !localRouteKeys.has(`${route.user_id}:${route.route_id}`)),
+        ...nextRemoteRoutes,
+        ...localPublicRoutes.filter((route) => !remoteRouteKeys.has(`${route.user_id}:${route.route_id}`)),
       ];
       setPublicRoutes(mergedRoutes);
+      setPublicDataStatus({
+        state: syncedRoutes.length ? 'synced' : 'ready',
+        remoteCount: nextRemoteRoutes.length,
+        localCount: localPublicRoutes.length,
+        syncedCount: syncedRoutes.length,
+        message: syncedRoutes.length
+          ? `已同步 ${nextRemoteRoutes.length} 条公开线路，其中 ${syncedRoutes.length} 条来自本机补同步。`
+          : `已从 Supabase 读取 ${nextRemoteRoutes.length} 条公开线路。`,
+      });
     };
 
     loadPublicRoutes();
@@ -821,6 +912,7 @@ export default function App() {
               </button>
             </div>
           </section>
+          <PublicDataStatus status={publicDataStatus} />
 
           <section className="public-grid">
             <div className="public-list" aria-label="公开岩馆列表">
@@ -893,6 +985,7 @@ export default function App() {
               <h1>线路、视频和讨论</h1>
             </div>
           </section>
+          <PublicDataStatus status={publicDataStatus} />
 
           <section className="square-layout">
             <div className="square-feed" aria-label="公开线路动态">
