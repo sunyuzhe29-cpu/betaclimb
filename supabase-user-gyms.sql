@@ -27,3 +27,86 @@ create policy "Users can update their own gyms"
   to authenticated
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+create table if not exists public.public_route_posts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  user_label text not null default '匿名用户',
+  gym_id text not null,
+  gym_name text not null,
+  gym_area text not null default '未填写',
+  route_id text not null,
+  route_name text not null,
+  grade text not null default '未定级',
+  sent_at date,
+  route_image_url text not null,
+  beta_video_url text not null default '',
+  notes text not null default '',
+  discussion_prompt text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, route_id)
+);
+
+alter table public.public_route_posts enable row level security;
+
+drop policy if exists "Anyone can read public route posts" on public.public_route_posts;
+create policy "Anyone can read public route posts"
+  on public.public_route_posts
+  for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "Users can publish their own route posts" on public.public_route_posts;
+create policy "Users can publish their own route posts"
+  on public.public_route_posts
+  for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own route posts" on public.public_route_posts;
+create policy "Users can update their own route posts"
+  on public.public_route_posts
+  for update
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own route posts" on public.public_route_posts;
+create policy "Users can delete their own route posts"
+  on public.public_route_posts
+  for delete
+  to authenticated
+  using (auth.uid() = user_id);
+
+create table if not exists public.public_route_comments (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.public_route_posts(id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  user_label text not null default '匿名用户',
+  content text not null check (length(trim(content)) between 1 and 1200),
+  created_at timestamptz not null default now()
+);
+
+alter table public.public_route_comments enable row level security;
+
+drop policy if exists "Anyone can read public route comments" on public.public_route_comments;
+create policy "Anyone can read public route comments"
+  on public.public_route_comments
+  for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "Users can comment as themselves" on public.public_route_comments;
+create policy "Users can comment as themselves"
+  on public.public_route_comments
+  for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own comments" on public.public_route_comments;
+create policy "Users can delete their own comments"
+  on public.public_route_comments
+  for delete
+  to authenticated
+  using (auth.uid() = user_id);

@@ -1,22 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  Building2,
   Bot,
   CalendarClock,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Dumbbell,
+  EyeOff,
   ImagePlus,
   LogIn,
   LogOut,
   MapPin,
+  MessageCircle,
   Pencil,
   PlaySquare,
   Plus,
   Save,
+  Send,
+  Share2,
+  Sparkles,
+  Target,
   Timer,
   Trash2,
   Upload,
+  Users,
   Video,
 } from 'lucide-react';
 import './App.css';
@@ -41,6 +50,8 @@ const gymImage = (base, accent, label) =>
 const STORAGE_PREFIX = 'betaclimb:gyms';
 const GUEST_STORAGE_KEY = `${STORAGE_PREFIX}:guest`;
 const CLOUD_GYMS_TABLE = 'user_gyms';
+const PUBLIC_ROUTES_TABLE = 'public_route_posts';
+const PUBLIC_COMMENTS_TABLE = 'public_route_comments';
 
 const fileToDataUrl = (file) =>
   new Promise((resolve, reject) => {
@@ -91,6 +102,80 @@ const getSentEntries = (gyms) =>
         sentAt: route.sentAt,
       })),
   );
+
+const getPublicRoutesFromGyms = (gyms, user) =>
+  gyms.flatMap((gym) =>
+    gym.routes
+      .filter((route) => route.isPublic)
+      .map((route) => ({
+        id: `${user?.id || 'local'}:${route.id}`,
+        user_id: user?.id || 'local',
+        user_label: user?.email || '我',
+        gym_id: gym.id,
+        gym_name: gym.name,
+        gym_area: gym.area,
+        route_id: route.id,
+        route_name: route.name,
+        grade: route.grade,
+        sent_at: route.sentAt || null,
+        route_image_url: route.imageUrl,
+        beta_video_url: route.betaVideoUrl || '',
+        notes: route.notes || '',
+        discussion_prompt: route.publicNote || '',
+        created_at: route.publishedAt || new Date().toISOString(),
+      })),
+  );
+
+const toPublicRoutePayload = (user, gym, route) => ({
+  user_id: user.id,
+  user_label: user.email || '匿名用户',
+  gym_id: gym.id,
+  gym_name: gym.name,
+  gym_area: gym.area,
+  route_id: route.id,
+  route_name: route.name,
+  grade: route.grade,
+  sent_at: route.sentAt || null,
+  route_image_url: route.imageUrl,
+  beta_video_url: route.betaVideoUrl || '',
+  notes: route.notes || '',
+  discussion_prompt: route.publicNote || '',
+  updated_at: new Date().toISOString(),
+});
+
+const getCurrentMonthRoutes = (routes, monthKey) =>
+  routes.filter((route) => (route.sent_at || route.created_at || '').startsWith(monthKey));
+
+const buildPublicGymStats = (routes, monthKey) => {
+  const routesThisMonth = getCurrentMonthRoutes(routes, monthKey);
+  const statsByGym = routesThisMonth.reduce((acc, route) => {
+    const gymId = route.gym_id || route.gym_name;
+    const current = acc[gymId] || {
+      id: gymId,
+      name: route.gym_name || '未命名岩馆',
+      area: route.gym_area || '未填写',
+      routeCount: 0,
+      userIds: new Set(),
+      grades: {},
+      routes: [],
+    };
+
+    current.routeCount += 1;
+    current.userIds.add(route.user_id || route.user_label || 'unknown');
+    current.grades[route.grade || '未定级'] = (current.grades[route.grade || '未定级'] || 0) + 1;
+    current.routes.push(route);
+    acc[gymId] = current;
+    return acc;
+  }, {});
+
+  return Object.values(statsByGym)
+    .map((gym) => ({
+      ...gym,
+      userCount: gym.userIds.size,
+      gradeSummary: Object.entries(gym.grades).sort(([gradeA], [gradeB]) => gradeA.localeCompare(gradeB, 'zh-CN')),
+    }))
+    .sort((gymA, gymB) => gymB.routeCount - gymA.routeCount);
+};
 
 const buildCalendarDays = (monthKey, entries) => {
   const [year, month] = monthKey.split('-').map(Number);
@@ -162,14 +247,31 @@ function UserMenu({ onOpenAuth }) {
   );
 }
 
+function TopNavButton({ active, children, icon: Icon, onClick }) {
+  return (
+    <button className={`top-nav-btn ${active ? 'active' : ''}`} type="button" onClick={onClick}>
+      <Icon size={17} />
+      {children}
+    </button>
+  );
+}
+
 export default function App() {
   const { user } = useAuth();
   const [gyms, setGyms] = useState([]);
+  const [activeView, setActiveView] = useState('personal');
   const [activeGymId, setActiveGymId] = useState('');
   const [activeRouteId, setActiveRouteId] = useState('');
+  const [activePublicGymId, setActivePublicGymId] = useState('');
+  const [activeDiscussionRouteId, setActiveDiscussionRouteId] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [isEditingGym, setIsEditingGym] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState('');
+  const [aiNeed, setAiNeed] = useState('');
+  const [aiRecommendation, setAiRecommendation] = useState('');
+  const [publicRoutes, setPublicRoutes] = useState([]);
+  const [publicComments, setPublicComments] = useState([]);
+  const [commentDraft, setCommentDraft] = useState('');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [loadedStorageKey, setLoadedStorageKey] = useState('');
   const [isCloudStorageReady, setIsCloudStorageReady] = useState(false);
@@ -179,6 +281,15 @@ export default function App() {
   const gymPhotoInputRef = useRef(null);
   const betaVideoInputRef = useRef(null);
   const storageKey = user?.id ? `${STORAGE_PREFIX}:${user.id}` : GUEST_STORAGE_KEY;
+
+  const switchView = (nextView) => {
+    setActiveView(nextView);
+    setActiveGymId('');
+    setActiveRouteId('');
+    setIsEditing(false);
+    setIsEditingGym(false);
+    setAiAnalysis('');
+  };
 
   useEffect(() => {
     let isActive = true;
@@ -245,6 +356,81 @@ export default function App() {
   }, [storageKey, user]);
 
   useEffect(() => {
+    let isActive = true;
+
+    const loadPublicRoutes = async () => {
+      const localPublicRoutes = getPublicRoutesFromGyms(gyms, user);
+
+      if (!supabase) {
+        setPublicRoutes(localPublicRoutes);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from(PUBLIC_ROUTES_TABLE)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(120);
+
+      if (!isActive) return;
+
+      if (error) {
+        console.warn('公开线路表还不可用，使用本地公开预览数据。', error);
+        setPublicRoutes(localPublicRoutes);
+        return;
+      }
+
+      const remoteRoutes = Array.isArray(data) ? data : [];
+      const localRouteKeys = new Set(localPublicRoutes.map((route) => `${route.user_id}:${route.route_id}`));
+      const mergedRoutes = [
+        ...localPublicRoutes,
+        ...remoteRoutes.filter((route) => !localRouteKeys.has(`${route.user_id}:${route.route_id}`)),
+      ];
+      setPublicRoutes(mergedRoutes);
+    };
+
+    loadPublicRoutes();
+
+    return () => {
+      isActive = false;
+    };
+  }, [gyms, user]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadComments = async () => {
+      if (!supabase || !activeDiscussionRouteId) {
+        setPublicComments([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from(PUBLIC_COMMENTS_TABLE)
+        .select('*')
+        .eq('post_id', activeDiscussionRouteId)
+        .order('created_at', { ascending: true })
+        .limit(60);
+
+      if (!isActive) return;
+
+      if (error) {
+        console.warn('公开讨论表还不可用，暂时隐藏讨论数据。', error);
+        setPublicComments([]);
+        return;
+      }
+
+      setPublicComments(Array.isArray(data) ? data : []);
+    };
+
+    loadComments();
+
+    return () => {
+      isActive = false;
+    };
+  }, [activeDiscussionRouteId]);
+
+  useEffect(() => {
     if (loadedStorageKey !== storageKey) return;
     window.localStorage.setItem(storageKey, JSON.stringify(gyms));
 
@@ -287,6 +473,18 @@ export default function App() {
   }, [sentEntries]);
   const calendarDays = useMemo(() => buildCalendarDays(calendarMonth, sentEntries), [calendarMonth, sentEntries]);
   const entriesForSelectedDate = sentEntries.filter((entry) => entry.sentAt === selectedCalendarDate);
+  const publicGymStats = useMemo(() => buildPublicGymStats(publicRoutes, calendarMonth), [calendarMonth, publicRoutes]);
+  const activePublicGym = publicGymStats.find((gym) => gym.id === activePublicGymId) || null;
+  const squareRoutes = useMemo(
+    () =>
+      [...publicRoutes].sort(
+        (routeA, routeB) =>
+          new Date(routeB.created_at || routeB.updated_at || 0).getTime() -
+          new Date(routeA.created_at || routeA.updated_at || 0).getTime(),
+      ),
+    [publicRoutes],
+  );
+  const activeDiscussionRoute = squareRoutes.find((route) => route.id === activeDiscussionRouteId) || null;
 
   const openCalendarRoute = (entry) => {
     setActiveGymId(entry.gymId);
@@ -373,6 +571,95 @@ export default function App() {
     );
   };
 
+  const publishActiveRoute = async (isPublic) => {
+    if (!activeGym || !activeRoute) return;
+
+    if (isPublic && !user) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    const publishedAt = isPublic ? activeRoute.publishedAt || new Date().toISOString() : '';
+    updateRoute({ isPublic, publishedAt });
+
+    if (!supabase || !user) return;
+
+    if (!isPublic) {
+      const { error } = await supabase
+        .from(PUBLIC_ROUTES_TABLE)
+        .delete()
+        .eq('user_id', user.id)
+        .eq('route_id', activeRoute.id);
+      if (error) console.warn('取消公开线路失败，请确认公开线路表已创建。', error);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from(PUBLIC_ROUTES_TABLE)
+      .upsert(toPublicRoutePayload(user, activeGym, { ...activeRoute, isPublic, publishedAt }), {
+        onConflict: 'user_id,route_id',
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.warn('公开线路失败，请确认公开线路表已创建。', error);
+      return;
+    }
+
+    if (data) {
+      setPublicRoutes((currentRoutes) => [
+        data,
+        ...currentRoutes.filter((route) => `${route.user_id}:${route.route_id}` !== `${data.user_id}:${data.route_id}`),
+      ]);
+    }
+  };
+
+  const handleSubmitComment = async () => {
+    const content = commentDraft.trim();
+    if (!content || !activeDiscussionRoute) return;
+
+    if (!user) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    const optimisticComment = {
+      id: `local-${Date.now()}`,
+      post_id: activeDiscussionRoute.id,
+      user_id: user.id,
+      user_label: user.email || '我',
+      content,
+      created_at: new Date().toISOString(),
+    };
+
+    setCommentDraft('');
+    setPublicComments((currentComments) => [...currentComments, optimisticComment]);
+
+    if (!supabase) return;
+
+    const { data, error } = await supabase
+      .from(PUBLIC_COMMENTS_TABLE)
+      .insert({
+        post_id: activeDiscussionRoute.id,
+        user_label: user.email || '匿名用户',
+        content,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.warn('发送讨论失败，请确认公开讨论表已创建。', error);
+      return;
+    }
+
+    if (data) {
+      setPublicComments((currentComments) =>
+        currentComments.map((comment) => (comment.id === optimisticComment.id ? data : comment)),
+      );
+    }
+  };
+
   const deleteActiveRoute = () => {
     if (!activeGym || !activeRoute) return;
     const confirmed = window.confirm(`删除「${activeRoute.name}」这条线路记录？`);
@@ -439,6 +726,38 @@ export default function App() {
     );
   };
 
+  const handleAiRecommendation = () => {
+    const need = aiNeed.trim();
+    if (!need) {
+      setAiRecommendation('先写下今天的目标，比如“想练脚法，强度不要太大，最好在静安附近”。');
+      return;
+    }
+
+    const candidateGyms = gyms.length ? gyms : publicGymStats;
+    const routes = gyms.flatMap((gym) =>
+      gym.routes.map((route) => ({
+        gymName: gym.name,
+        gymArea: gym.area,
+        routeName: route.name,
+        grade: route.grade,
+        sentAt: route.sentAt,
+        notes: route.notes,
+      })),
+    );
+    const gymText = candidateGyms
+      .slice(0, 3)
+      .map((gym) => `「${gym.name}」${gym.area ? `（${gym.area}）` : ''}`)
+      .join('、');
+    const routeText = routes
+      .slice(0, 4)
+      .map((route) => `「${route.routeName}」${route.grade} @ ${route.gymName}`)
+      .join('、');
+
+    setAiRecommendation(
+      `根据你的描述：“${need}”\n\n推荐先去 ${gymText || '你最近常去的岩馆'}。今天训练可以分三段：热身 20 分钟，选择 2-3 条低一级线路做脚点和重心练习；主训练 45 分钟，挑一条略有挑战的线路反复拆动作；最后 15 分钟做肩背和髋部放松。\n\n可优先参考：${routeText || '公开广场里本月同城用户分享的线路'}。\n\n这里现在是本地规则版建议；接入后端 AI 后，可以把天气、距离、岩馆热度、你的历史完攀和恢复状态一起纳入推荐。`,
+    );
+  };
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -446,9 +765,7 @@ export default function App() {
           className="brand"
           type="button"
           onClick={() => {
-            setActiveGymId('');
-            setActiveRouteId('');
-            setIsEditingGym(false);
+            switchView('personal');
           }}
         >
           <span className="brand-mark">
@@ -461,6 +778,20 @@ export default function App() {
         </button>
 
         <div className="topbar-actions">
+          <nav className="top-nav" aria-label="主功能">
+            <TopNavButton active={activeView === 'personal'} icon={Dumbbell} onClick={() => switchView('personal')}>
+              我的
+            </TopNavButton>
+            <TopNavButton active={activeView === 'gyms'} icon={Building2} onClick={() => switchView('gyms')}>
+              岩馆
+            </TopNavButton>
+            <TopNavButton active={activeView === 'square'} icon={Users} onClick={() => switchView('square')}>
+              广场
+            </TopNavButton>
+            <TopNavButton active={activeView === 'ai'} icon={Sparkles} onClick={() => switchView('ai')}>
+              AI
+            </TopNavButton>
+          </nav>
           <div className="summary-strip" aria-label="记录统计">
             <span>{gyms.length} 个岩馆</span>
             <span>{totalRoutes} 条线路</span>
@@ -471,7 +802,201 @@ export default function App() {
       </header>
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
 
-      {!activeGym ? (
+      {activeView === 'gyms' ? (
+        <main className="public-view">
+          <section className="intro-band">
+            <div>
+              <p className="eyebrow">全站公开数据</p>
+              <h1>本月岩馆线路</h1>
+            </div>
+            <div className="month-controls">
+              <button className="ghost-btn icon-only" type="button" onClick={() => setCalendarMonth((month) => moveMonth(month, -1))}>
+                <ChevronLeft size={17} />
+              </button>
+              <button className="ghost-btn month-label" type="button">
+                {formatMonthLabel(calendarMonth)}
+              </button>
+              <button className="ghost-btn icon-only" type="button" onClick={() => setCalendarMonth((month) => moveMonth(month, 1))}>
+                <ChevronRight size={17} />
+              </button>
+            </div>
+          </section>
+
+          <section className="public-grid">
+            <div className="public-list" aria-label="公开岩馆列表">
+              {publicGymStats.length ? (
+                publicGymStats.map((gym) => (
+                  <button
+                    className={`public-gym-row ${gym.id === activePublicGymId ? 'active' : ''}`}
+                    key={gym.id}
+                    type="button"
+                    onClick={() => setActivePublicGymId(gym.id)}
+                  >
+                    <span>
+                      <strong>{gym.name}</strong>
+                      <small>{gym.area} · {gym.routeCount} 条公开线路 · {gym.userCount} 位用户</small>
+                    </span>
+                    <ChevronRight size={18} />
+                  </button>
+                ))
+              ) : (
+                <div className="empty-state">
+                  <strong>这个月还没有公开线路</strong>
+                  <span>用户在单条线路里同意公开后，这里会自动按岩馆汇总。</span>
+                </div>
+              )}
+            </div>
+
+            <div className="public-detail">
+              {activePublicGym ? (
+                <>
+                  <div className="section-title">
+                    <p className="eyebrow">{activePublicGym.area}</p>
+                    <h2>{activePublicGym.name}</h2>
+                  </div>
+                  <div className="grade-grid public-grade-grid">
+                    {activePublicGym.gradeSummary.map(([grade, count]) => (
+                      <div className="grade-tile" key={grade}>
+                        <strong>{grade}</strong>
+                        <span>{count} 条</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="public-route-list">
+                    {activePublicGym.routes.map((route) => (
+                      <article className="public-route-item" key={route.id}>
+                        <img src={route.route_image_url} alt={`${route.route_name} 线路照片`} />
+                        <span>
+                          <strong>{route.route_name}</strong>
+                          <small>{route.grade} · {route.user_label} · {route.sent_at || '未记录完攀日期'}</small>
+                        </span>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="empty-state">
+                  <strong>选择一个岩馆</strong>
+                  <span>查看这个月公开分享的线路、难度分布和完攀记录。</span>
+                </div>
+              )}
+            </div>
+          </section>
+        </main>
+      ) : null}
+
+      {activeView === 'square' ? (
+        <main className="public-view">
+          <section className="intro-band">
+            <div>
+              <p className="eyebrow">公开广场</p>
+              <h1>线路、视频和讨论</h1>
+            </div>
+          </section>
+
+          <section className="square-layout">
+            <div className="square-feed" aria-label="公开线路动态">
+              {squareRoutes.length ? (
+                squareRoutes.map((route) => (
+                  <article className="square-post" key={route.id}>
+                    <div className="square-post-media">
+                      <img src={route.route_image_url} alt={`${route.route_name} 线路照片`} />
+                      {route.beta_video_url ? <video src={route.beta_video_url} controls /> : null}
+                    </div>
+                    <div className="square-post-body">
+                      <div>
+                        <p className="eyebrow">{route.gym_name}</p>
+                        <h2>{route.route_name}</h2>
+                      </div>
+                      <p className="post-meta">{route.grade} · {route.user_label} · {route.sent_at || '未记录完攀日期'}</p>
+                      {route.discussion_prompt || route.notes ? (
+                        <p className="post-copy">{route.discussion_prompt || route.notes}</p>
+                      ) : null}
+                      <button className="ghost-btn compact" type="button" onClick={() => setActiveDiscussionRouteId(route.id)}>
+                        <MessageCircle size={17} />
+                        讨论
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="empty-state">
+                  <strong>广场还没有内容</strong>
+                  <span>用户明确同意公开的线路和完攀视频会出现在这里。</span>
+                </div>
+              )}
+            </div>
+
+            <aside className="discussion-panel">
+              {activeDiscussionRoute ? (
+                <>
+                  <div className="section-title">
+                    <p className="eyebrow">讨论</p>
+                    <h2>{activeDiscussionRoute.route_name}</h2>
+                  </div>
+                  <div className="comment-list">
+                    {publicComments.length ? (
+                      publicComments.map((comment) => (
+                        <div className="comment" key={comment.id}>
+                          <strong>{comment.user_label}</strong>
+                          <p>{comment.content}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="empty-copy">还没有讨论，问一个 beta 或训练建议吧。</p>
+                    )}
+                  </div>
+                  <div className="comment-compose">
+                    <textarea
+                      value={commentDraft}
+                      placeholder="写下你的观察或问题..."
+                      onChange={(event) => setCommentDraft(event.target.value)}
+                    />
+                    <button className="primary-btn compact" type="button" onClick={handleSubmitComment}>
+                      <Send size={17} />
+                      发送
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="empty-state">
+                  <strong>选择一条线路</strong>
+                  <span>讨论动作、脚点、训练目标，或者给上传者一些建议。</span>
+                </div>
+              )}
+            </aside>
+          </section>
+        </main>
+      ) : null}
+
+      {activeView === 'ai' ? (
+        <main className="public-view">
+          <section className="ai-workspace">
+            <div className="section-title">
+              <p className="eyebrow">AI 攀岩助手</p>
+              <h1>今天想怎么爬？</h1>
+            </div>
+            <label className="field">
+              <span>
+                <Target size={16} />
+                你的需求
+              </span>
+              <textarea
+                value={aiNeed}
+                placeholder="例如：今天想练动态，但肩膀有点累，希望路线不要太长，最好能推荐附近岩馆和 3 条线路。"
+                onChange={(event) => setAiNeed(event.target.value)}
+              />
+            </label>
+            <button className="ai-btn ai-submit" type="button" onClick={handleAiRecommendation}>
+              <Sparkles size={18} />
+              生成推荐和训练计划
+            </button>
+            {aiRecommendation ? <pre className="ai-result">{aiRecommendation}</pre> : null}
+          </section>
+        </main>
+      ) : null}
+
+      {activeView === 'personal' && !activeGym ? (
         <main className="home-view">
           <section className="intro-band">
             <div>
@@ -586,7 +1111,7 @@ export default function App() {
         </main>
       ) : null}
 
-      {activeGym && !activeRoute ? (
+      {activeView === 'personal' && activeGym && !activeRoute ? (
         <main className="routes-view">
           <div className="view-header">
             <button className="ghost-btn" type="button" onClick={() => setActiveGymId('')}>
@@ -680,7 +1205,7 @@ export default function App() {
         </main>
       ) : null}
 
-      {activeGym && activeRoute ? (
+      {activeView === 'personal' && activeGym && activeRoute ? (
         <main className="route-detail-view">
           <div className="view-header">
             <button className="ghost-btn" type="button" onClick={() => setActiveRouteId('')}>
@@ -787,6 +1312,28 @@ export default function App() {
                 AI 分析 beta 视频
               </button>
               {aiAnalysis ? <p className="ai-note">{aiAnalysis}</p> : null}
+
+              <div className="share-box">
+                <div>
+                  <span>
+                    {activeRoute.isPublic ? <CheckCircle2 size={16} /> : <EyeOff size={16} />}
+                    广场公开
+                  </span>
+                  <p>
+                    {activeRoute.isPublic
+                      ? '这条线路会出现在全站岩馆统计和广场里。'
+                      : '默认仅自己可见。打开后才会公开线路、照片、视频和备注。'}
+                  </p>
+                </div>
+                <button
+                  className={activeRoute.isPublic ? 'ghost-btn compact' : 'primary-btn compact'}
+                  type="button"
+                  onClick={() => publishActiveRoute(!activeRoute.isPublic)}
+                >
+                  <Share2 size={17} />
+                  {activeRoute.isPublic ? '取消公开' : '同意公开'}
+                </button>
+              </div>
 
               <button className="danger-btn" type="button" onClick={deleteActiveRoute}>
                 <Trash2 size={17} />
