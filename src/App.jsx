@@ -54,6 +54,8 @@ const CLOUD_GYMS_TABLE = 'user_gyms';
 const PUBLIC_GYMS_TABLE = 'public_gyms';
 const PUBLIC_ROUTES_TABLE = 'public_route_posts';
 const PUBLIC_COMMENTS_TABLE = 'public_route_comments';
+const BETA_VIDEO_BUCKET = 'beta-videos';
+const MAX_LOCAL_VIDEO_BYTES = 6 * 1024 * 1024;
 
 const fileToDataUrl = (file) =>
   new Promise((resolve, reject) => {
@@ -75,6 +77,23 @@ const readStoredGyms = (storageKey) => {
     return [];
   }
 };
+
+const writeStoredGyms = (storageKey, gyms) => {
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(gyms));
+    return true;
+  } catch (error) {
+    console.warn('本地存储空间不足，已跳过本机缓存。', error);
+    return false;
+  }
+};
+
+const sanitizeStorageName = (name) =>
+  name
+    .trim()
+    .replace(/[^\p{L}\p{N}._-]+/gu, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 90) || 'beta-video';
 
 const saveCloudGyms = async (userId, gyms) => {
   if (!supabase || !userId) return { error: null };
@@ -519,7 +538,7 @@ export default function App() {
       const cloudGyms = Array.isArray(data?.gyms) ? data.gyms : null;
       const nextGyms = cloudGyms || fallbackGyms;
       setGyms(nextGyms);
-      window.localStorage.setItem(storageKey, JSON.stringify(nextGyms));
+      writeStoredGyms(storageKey, nextGyms);
 
       if (!cloudGyms && fallbackGyms.length) {
         const { error: saveError } = await saveCloudGyms(user.id, fallbackGyms);
@@ -762,7 +781,7 @@ export default function App() {
 
   useEffect(() => {
     if (loadedStorageKey !== storageKey) return;
-    window.localStorage.setItem(storageKey, JSON.stringify(gyms));
+    writeStoredGyms(storageKey, gyms);
 
     if (!user || !isCloudStorageReady) return;
 
@@ -1092,9 +1111,66 @@ export default function App() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    updateRoute({ betaVideoUrl: await fileToDataUrl(file) });
-    setAiAnalysis('');
-    event.target.value = '';
+    if (!activeGym || !activeRoute) {
+      event.target.value = '';
+      return;
+    }
+
+    try {
+      setAiAnalysis('正在上传 beta 视频...');
+
+      let betaVideoUrl = '';
+
+      if (supabase && user) {
+        const extension = file.name.includes('.') ? file.name.split('.').pop() : 'mp4';
+        const fileName = `${Date.now()}-${sanitizeStorageName(file.name || `beta.${extension}`)}`;
+        const filePath = `${user.id}/${activeGym.id}/${activeRoute.id}/${fileName}`;
+        const { error } = await supabase.storage
+          .from(BETA_VIDEO_BUCKET)
+          .upload(filePath, file, {
+            cacheControl: '31536000',
+            contentType: file.type || 'video/mp4',
+            upsert: true,
+          });
+
+        if (error) {
+          throw new Error(`视频上传失败：${error.message}`);
+        }
+
+        const { data } = supabase.storage.from(BETA_VIDEO_BUCKET).getPublicUrl(filePath);
+        betaVideoUrl = data.publicUrl;
+      } else {
+        if (file.size > MAX_LOCAL_VIDEO_BYTES) {
+          throw new Error('请先登录再上传较大的 beta 视频。未登录时只支持 6MB 以内的本地预览。');
+        }
+        betaVideoUrl = await fileToDataUrl(file);
+      }
+
+      const nextRoute = {
+        ...activeRoute,
+        betaVideoUrl,
+      };
+      updateRoute({ betaVideoUrl });
+
+      if (activeRoute.isPublic && supabase && user) {
+        const { error } = await supabase
+          .from(PUBLIC_ROUTES_TABLE)
+          .upsert(toPublicRoutePayload(user, activeGym, nextRoute), {
+            onConflict: 'user_id,route_id',
+          });
+
+        if (error) {
+          console.warn('公开视频地址同步失败。', error);
+        }
+      }
+
+      setAiAnalysis('beta 视频已上传。');
+    } catch (error) {
+      console.warn('上传 beta 视频失败', error);
+      setAiAnalysis(error.message || '视频上传失败，请换一个较小的视频再试。');
+    } finally {
+      event.target.value = '';
+    }
   };
 
   const handleAiAnalysis = () => {
