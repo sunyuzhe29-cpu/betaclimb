@@ -55,8 +55,11 @@ const CLOUD_GYMS_TABLE = 'user_gyms';
 const PUBLIC_GYMS_TABLE = 'public_gyms';
 const PUBLIC_ROUTES_TABLE = 'public_route_posts';
 const PUBLIC_COMMENTS_TABLE = 'public_route_comments';
+const PUBLIC_SQUARE_POSTS_TABLE = 'public_square_posts';
+const PUBLIC_SQUARE_COMMENTS_TABLE = 'public_square_comments';
 const BETA_VIDEO_BUCKET = 'beta-videos';
 const MAX_LOCAL_VIDEO_BYTES = 6 * 1024 * 1024;
+const LOCAL_SQUARE_POSTS_KEY = 'betaclimb:square-posts';
 
 const fileToDataUrl = (file) =>
   new Promise((resolve, reject) => {
@@ -86,6 +89,26 @@ const writeStoredGyms = (storageKey, gyms) => {
   } catch (error) {
     console.warn('本地存储空间不足，已跳过本机缓存。', error);
     return false;
+  }
+};
+
+const readStoredSquarePosts = () => {
+  try {
+    const storedValue = window.localStorage.getItem(LOCAL_SQUARE_POSTS_KEY);
+    if (!storedValue) return [];
+
+    const parsedValue = JSON.parse(storedValue);
+    return Array.isArray(parsedValue) ? parsedValue : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredSquarePosts = (posts) => {
+  try {
+    window.localStorage.setItem(LOCAL_SQUARE_POSTS_KEY, JSON.stringify(posts));
+  } catch (error) {
+    console.warn('广场帖子本地缓存失败。', error);
   }
 };
 
@@ -665,6 +688,15 @@ export default function App() {
     syncedCount: 0,
     message: '',
   });
+  const [squarePosts, setSquarePosts] = useState([]);
+  const [activeSquarePostId, setActiveSquarePostId] = useState('');
+  const [squarePostDraft, setSquarePostDraft] = useState({
+    category: '闲聊',
+    title: '',
+    content: '',
+  });
+  const [squareComments, setSquareComments] = useState([]);
+  const [squareCommentDraft, setSquareCommentDraft] = useState('');
   const [publicComments, setPublicComments] = useState([]);
   const [commentDraft, setCommentDraft] = useState('');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -675,6 +707,7 @@ export default function App() {
   const routePhotoInputRef = useRef(null);
   const gymPhotoInputRef = useRef(null);
   const betaVideoInputRef = useRef(null);
+  const localSquareIdRef = useRef(0);
   const storageKey = user?.id ? `${STORAGE_PREFIX}:${user.id}` : GUEST_STORAGE_KEY;
 
   const switchView = (nextView) => {
@@ -817,6 +850,43 @@ export default function App() {
       isActive = false;
     };
   }, [gyms, user]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadSquarePosts = async () => {
+      const localPosts = readStoredSquarePosts();
+
+      if (!supabase) {
+        setSquarePosts(localPosts);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from(PUBLIC_SQUARE_POSTS_TABLE)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(120);
+
+      if (!isActive) return;
+
+      if (error) {
+        console.warn('广场帖子表还不可用，使用本机广场帖子。', error);
+        setSquarePosts(localPosts);
+        return;
+      }
+
+      const remotePosts = Array.isArray(data) ? data : [];
+      const localOnlyPosts = localPosts.filter((post) => String(post.id).startsWith('local-'));
+      setSquarePosts([...localOnlyPosts, ...remotePosts]);
+    };
+
+    loadSquarePosts();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -974,6 +1044,40 @@ export default function App() {
   }, [activeDiscussionRouteId]);
 
   useEffect(() => {
+    let isActive = true;
+
+    const loadSquareComments = async () => {
+      if (!supabase || !activeSquarePostId || String(activeSquarePostId).startsWith('local-')) {
+        setSquareComments([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from(PUBLIC_SQUARE_COMMENTS_TABLE)
+        .select('*')
+        .eq('post_id', activeSquarePostId)
+        .order('created_at', { ascending: true })
+        .limit(80);
+
+      if (!isActive) return;
+
+      if (error) {
+        console.warn('广场评论表还不可用，暂时隐藏评论数据。', error);
+        setSquareComments([]);
+        return;
+      }
+
+      setSquareComments(Array.isArray(data) ? data : []);
+    };
+
+    loadSquareComments();
+
+    return () => {
+      isActive = false;
+    };
+  }, [activeSquarePostId]);
+
+  useEffect(() => {
     if (loadedStorageKey !== storageKey) return;
     writeStoredGyms(storageKey, gyms);
 
@@ -1065,23 +1169,17 @@ export default function App() {
       ),
     [publicRoutes],
   );
+  const sortedSquarePosts = useMemo(
+    () =>
+      [...squarePosts].sort(
+        (postA, postB) =>
+          new Date(postB.created_at || postB.updated_at || 0).getTime() -
+          new Date(postA.created_at || postA.updated_at || 0).getTime(),
+      ),
+    [squarePosts],
+  );
+  const activeSquarePost = sortedSquarePosts.find((post) => post.id === activeSquarePostId) || null;
   const activeDiscussionRoute = squareRoutes.find((route) => route.id === activeDiscussionRouteId) || null;
-  const activeSquareRouteGroup = useMemo(() => {
-    if (!activeDiscussionRoute) return null;
-
-    const relatedRoutes = squareRoutes.filter((route) => getRouteGymKey(route) === getRouteGymKey(activeDiscussionRoute));
-    return (
-      groupRoutesBySimilarity(relatedRoutes, routeImageFingerprints).find((group) =>
-        group.routes.some((route) => route.id === activeDiscussionRoute.id),
-      ) || {
-        id: activeDiscussionRoute.id,
-        representative: activeDiscussionRoute,
-        routes: [activeDiscussionRoute],
-        routeCount: 1,
-        userCount: 1,
-      }
-    );
-  }, [activeDiscussionRoute, routeImageFingerprints, squareRoutes]);
 
   const openCalendarRoute = (entry) => {
     setActiveGymId(entry.gymId);
@@ -1157,8 +1255,13 @@ export default function App() {
   };
 
   const openPublicRouteDiscussion = (routeId) => {
-    setActiveView('square');
+    const route = publicRoutes.find((publicRoute) => publicRoute.id === routeId);
+    setActiveView('gyms');
+    if (route) {
+      setActivePublicGymId(getRouteGymKey(route));
+    }
     setActiveDiscussionRouteId(routeId);
+    setActiveSquarePostId('');
     setActiveGymId('');
     setActiveRouteId('');
     setIsEditing(false);
@@ -1303,6 +1406,107 @@ export default function App() {
 
     if (data) {
       setPublicComments((currentComments) =>
+        currentComments.map((comment) => (comment.id === optimisticComment.id ? data : comment)),
+      );
+    }
+  };
+
+  const handleCreateSquarePost = async () => {
+    const title = squarePostDraft.title.trim();
+    const content = squarePostDraft.content.trim();
+    const category = squarePostDraft.category.trim() || '闲聊';
+    if (!title || !content) return;
+
+    if (!user && supabase) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    const optimisticPost = {
+      id: `local-post-${(localSquareIdRef.current += 1)}`,
+      user_id: user?.id || 'local',
+      user_label: getPublicUserLabel(user, '本机用户'),
+      category,
+      title,
+      content,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const nextPosts = [optimisticPost, ...squarePosts];
+    setSquarePosts(nextPosts);
+    writeStoredSquarePosts(nextPosts);
+    setActiveSquarePostId(optimisticPost.id);
+    setSquarePostDraft({ category, title: '', content: '' });
+
+    if (!supabase) return;
+
+    const { data, error } = await supabase
+      .from(PUBLIC_SQUARE_POSTS_TABLE)
+      .insert({
+        user_label: getPublicUserLabel(user),
+        category,
+        title,
+        content,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.warn('发布广场帖子失败，请确认广场帖子表已创建。', error);
+      return;
+    }
+
+    if (data) {
+      setSquarePosts((currentPosts) => {
+        const updatedPosts = currentPosts.map((post) => (post.id === optimisticPost.id ? data : post));
+        writeStoredSquarePosts(updatedPosts);
+        return updatedPosts;
+      });
+      setActiveSquarePostId(data.id);
+    }
+  };
+
+  const handleSubmitSquareComment = async () => {
+    const content = squareCommentDraft.trim();
+    if (!content || !activeSquarePost) return;
+
+    if (!user && supabase) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    const optimisticComment = {
+      id: `local-comment-${(localSquareIdRef.current += 1)}`,
+      post_id: activeSquarePost.id,
+      user_id: user?.id || 'local',
+      user_label: getPublicUserLabel(user, '本机用户'),
+      content,
+      created_at: new Date().toISOString(),
+    };
+
+    setSquareCommentDraft('');
+    setSquareComments((currentComments) => [...currentComments, optimisticComment]);
+
+    if (!supabase || String(activeSquarePost.id).startsWith('local-')) return;
+
+    const { data, error } = await supabase
+      .from(PUBLIC_SQUARE_COMMENTS_TABLE)
+      .insert({
+        post_id: activeSquarePost.id,
+        user_label: getPublicUserLabel(user),
+        content,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.warn('发送广场评论失败，请确认广场评论表已创建。', error);
+      return;
+    }
+
+    if (data) {
+      setSquareComments((currentComments) =>
         currentComments.map((comment) => (comment.id === optimisticComment.id ? data : comment)),
       );
     }
@@ -1721,6 +1925,38 @@ export default function App() {
                           </article>
                         ))}
                       </div>
+                      {activeDiscussionRoute &&
+                      activePublicRouteGroup.routes.some((route) => route.id === activeDiscussionRoute.id) ? (
+                        <section className="route-discussion-block" aria-label="线路讨论">
+                          <div className="section-title compact-title">
+                            <p className="eyebrow">线路讨论</p>
+                            <h2>{activeDiscussionRoute.route_name}</h2>
+                          </div>
+                          <div className="comment-list">
+                            {publicComments.length ? (
+                              publicComments.map((comment) => (
+                                <div className="comment" key={comment.id}>
+                                  <strong>{getVisibleUserLabel(comment.user_label)}</strong>
+                                  <p>{comment.content}</p>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="empty-copy">还没有讨论，问一个 beta 或训练建议吧。</p>
+                            )}
+                          </div>
+                          <div className="comment-compose">
+                            <textarea
+                              value={commentDraft}
+                              placeholder="写下你的观察或问题..."
+                              onChange={(event) => setCommentDraft(event.target.value)}
+                            />
+                            <button className="primary-btn compact" type="button" onClick={handleSubmitComment}>
+                              <Send size={17} />
+                              发送
+                            </button>
+                          </div>
+                        </section>
+                      ) : null}
                     </section>
                   ) : null}
                 </>
@@ -1740,118 +1976,116 @@ export default function App() {
           <section className="intro-band">
             <div>
               <p className="eyebrow">公开广场</p>
-              <h1>线路、视频和讨论</h1>
+              <h1>自由发帖</h1>
             </div>
           </section>
-          <PublicDataStatus status={publicDataStatus} />
 
           <section className="square-layout">
-            <div className="square-feed" aria-label="公开线路动态">
-              {squareRoutes.length ? (
-                squareRoutes.map((route) => (
+            <div className="square-feed" aria-label="公开广场帖子">
+              <section className="square-compose" aria-label="发布广场帖子">
+                <div className="section-title">
+                  <p className="eyebrow">发帖</p>
+                  <h2>聊点攀岩以外的攀岩事</h2>
+                </div>
+                <div className="compose-row">
+                  {['闲聊', '装备', '岩馆'].map((category) => (
+                    <button
+                      className={`category-chip ${squarePostDraft.category === category ? 'active' : ''}`}
+                      key={category}
+                      type="button"
+                      onClick={() => setSquarePostDraft((draft) => ({ ...draft, category }))}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  className="compose-title"
+                  type="text"
+                  value={squarePostDraft.title}
+                  placeholder="标题，比如：新手第一双鞋怎么选？"
+                  onChange={(event) => setSquarePostDraft((draft) => ({ ...draft, title: event.target.value }))}
+                />
+                <textarea
+                  value={squarePostDraft.content}
+                  placeholder="写装备体验、岩馆感受，或者任何想聊的攀岩话题。"
+                  onChange={(event) => setSquarePostDraft((draft) => ({ ...draft, content: event.target.value }))}
+                />
+                <button className="primary-btn compact" type="button" onClick={handleCreateSquarePost}>
+                  <Send size={17} />
+                  发布
+                </button>
+              </section>
+
+              {sortedSquarePosts.length ? (
+                sortedSquarePosts.map((post) => (
                   <article
-                    className={`square-post ${route.id === activeDiscussionRouteId ? 'active' : ''}`}
-                    key={route.id}
+                    className={`square-post text-post ${post.id === activeSquarePostId ? 'active' : ''}`}
+                    key={post.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => setActiveDiscussionRouteId(route.id)}
+                    onClick={() => setActiveSquarePostId(post.id)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        setActiveDiscussionRouteId(route.id);
+                        setActiveSquarePostId(post.id);
                       }
                     }}
                   >
-                    <div className="square-post-media">
-                      <img src={route.route_image_url} alt={`${route.route_name} 线路照片`} />
-                      {route.beta_video_url ? <video src={route.beta_video_url} controls /> : null}
-                    </div>
                     <div className="square-post-body">
                       <div>
-                        <p className="eyebrow">{route.gym_name}</p>
-                        <h2>{route.route_name}</h2>
+                        <p className="eyebrow">{post.category || '闲聊'}</p>
+                        <h2>{post.title}</h2>
                       </div>
-                      <p className="post-meta">{route.grade} · {getVisibleUserLabel(route.user_label)} · {route.sent_at || '未记录完攀日期'}</p>
-                      {route.discussion_prompt || route.notes ? (
-                        <p className="post-copy">{route.discussion_prompt || route.notes}</p>
-                      ) : null}
-                      <button className="ghost-btn compact" type="button" onClick={() => setActiveDiscussionRouteId(route.id)}>
-                        <MessageCircle size={17} />
-                        查看详情
-                      </button>
+                      <p className="post-meta">
+                        {getVisibleUserLabel(post.user_label)} · {(post.created_at || '').slice(0, 10) || '刚刚'}
+                      </p>
+                      <p className="post-copy">{post.content}</p>
                     </div>
                   </article>
                 ))
               ) : (
                 <div className="empty-state">
-                  <strong>广场还没有内容</strong>
-                  <span>用户明确同意公开的线路和完攀视频会出现在这里。</span>
+                  <strong>广场还没有帖子</strong>
+                  <span>可以先发一个装备、岩馆或日常话题。</span>
                 </div>
               )}
             </div>
 
             <aside className="discussion-panel">
-              {activeDiscussionRoute && activeSquareRouteGroup ? (
+              {activeSquarePost ? (
                 <>
                   <div className="section-title">
-                    <p className="eyebrow">{activeDiscussionRoute.gym_name}</p>
-                    <h2>{activeSquareRouteGroup.representative.route_name}</h2>
+                    <p className="eyebrow">{activeSquarePost.category || '闲聊'}</p>
+                    <h2>{activeSquarePost.title}</h2>
                   </div>
-                  <section className="square-route-detail" aria-label="广场线路详情">
-                    <img
-                      className="public-route-detail-image"
-                      src={activeSquareRouteGroup.representative.route_image_url}
-                      alt={`${activeSquareRouteGroup.representative.route_name} 线路完整照片`}
-                    />
-                    <p className="post-meta">
-                      {activeSquareRouteGroup.representative.grade} · {activeSquareRouteGroup.routeCount || activeSquareRouteGroup.routes.length} 次分享 · {activeSquareRouteGroup.userCount || new Set(activeSquareRouteGroup.routes.map((route) => route.user_id || route.user_label)).size} 位用户
-                    </p>
-                    <div className="beta-video-list">
-                      {activeSquareRouteGroup.routes.map((route) => (
-                        <article className="beta-video-item" key={route.id}>
-                          <div>
-                            <strong>{getVisibleUserLabel(route.user_label)}</strong>
-                            <small>{route.grade} · {route.sent_at || '未记录完攀日期'}</small>
-                          </div>
-                          {route.beta_video_url ? (
-                            <video src={route.beta_video_url} controls />
-                          ) : (
-                            <p className="empty-copy">这个用户还没有公开视频。</p>
-                          )}
-                          {route.discussion_prompt || route.notes ? (
-                            <p className="post-copy">{route.discussion_prompt || route.notes}</p>
-                          ) : null}
-                          <button className="ghost-btn compact" type="button" onClick={() => setActiveDiscussionRouteId(route.id)}>
-                            <MessageCircle size={17} />
-                            讨论这条记录
-                          </button>
-                        </article>
-                      ))}
-                    </div>
-                  </section>
+                  <p className="post-meta">
+                    {getVisibleUserLabel(activeSquarePost.user_label)} · {(activeSquarePost.created_at || '').slice(0, 10) || '刚刚'}
+                  </p>
+                  <p className="post-copy detail-copy">{activeSquarePost.content}</p>
                   <div className="section-title compact-title">
-                    <p className="eyebrow">讨论</p>
-                    <h2>{activeDiscussionRoute.route_name}</h2>
+                    <p className="eyebrow">评论</p>
+                    <h2>继续聊</h2>
                   </div>
                   <div className="comment-list">
-                    {publicComments.length ? (
-                      publicComments.map((comment) => (
+                    {squareComments.length ? (
+                      squareComments.map((comment) => (
                         <div className="comment" key={comment.id}>
                           <strong>{getVisibleUserLabel(comment.user_label)}</strong>
                           <p>{comment.content}</p>
                         </div>
                       ))
                     ) : (
-                      <p className="empty-copy">还没有讨论，问一个 beta 或训练建议吧。</p>
+                      <p className="empty-copy">还没有评论，接一句也行。</p>
                     )}
                   </div>
                   <div className="comment-compose">
                     <textarea
-                      value={commentDraft}
-                      placeholder="写下你的观察或问题..."
-                      onChange={(event) => setCommentDraft(event.target.value)}
+                      value={squareCommentDraft}
+                      placeholder="写下你的回复..."
+                      onChange={(event) => setSquareCommentDraft(event.target.value)}
                     />
-                    <button className="primary-btn compact" type="button" onClick={handleSubmitComment}>
+                    <button className="primary-btn compact" type="button" onClick={handleSubmitSquareComment}>
                       <Send size={17} />
                       发送
                     </button>
@@ -1859,8 +2093,8 @@ export default function App() {
                 </>
               ) : (
                 <div className="empty-state">
-                  <strong>选择一条线路</strong>
-                  <span>讨论动作、脚点、训练目标，或者给上传者一些建议。</span>
+                  <strong>选择一个帖子</strong>
+                  <span>装备、岩馆和日常话题都可以在这里聊。</span>
                 </div>
               )}
             </aside>
@@ -2420,11 +2654,11 @@ export default function App() {
                 <div>
                   <span>
                     {activeRoute.isPublic ? <CheckCircle2 size={16} /> : <EyeOff size={16} />}
-                    广场公开
+                    岩馆公开
                   </span>
                   <p>
                     {activeRoute.isPublic
-                      ? '这条线路会出现在全站岩馆统计和广场里。'
+                      ? '这条线路会出现在全站岩馆统计和对应岩馆讨论里。'
                       : '默认仅自己可见。打开后才会公开线路、照片、视频和备注。'}
                   </p>
                 </div>

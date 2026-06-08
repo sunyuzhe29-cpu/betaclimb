@@ -1447,6 +1447,50 @@ h2 {
   grid-template-columns: minmax(320px, 0.8fr) minmax(420px, 1fr);
 }
 
+.square-compose {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #ddd7ca;
+  border-radius: 8px;
+  background: #fffaf0;
+  box-shadow: 0 14px 36px rgba(31, 41, 55, 0.06);
+}
+
+.compose-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.category-chip {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid #d6cec0;
+  border-radius: 999px;
+  color: #374151;
+  background: #f7f4ee;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.category-chip.active {
+  border-color: #1f2937;
+  color: #fffaf0;
+  background: #1f2937;
+}
+
+.compose-title {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid #d6cec0;
+  border-radius: 8px;
+  color: #111827;
+  background: #ffffff;
+  outline: 0;
+}
+
 .square-post {
   overflow: hidden;
   display: grid;
@@ -1473,6 +1517,10 @@ h2 {
 .square-post.active {
   border-color: #1f2937;
   box-shadow: 0 0 0 2px rgba(31, 41, 55, 0.1), 0 16px 38px rgba(31, 41, 55, 0.1);
+}
+
+.square-post.text-post {
+  grid-template-columns: 1fr;
 }
 
 .square-post-media {
@@ -1505,6 +1553,14 @@ h2 {
   line-height: 1.55;
 }
 
+.detail-copy {
+  padding: 12px;
+  border: 1px solid #ddd7ca;
+  border-radius: 8px;
+  background: #f7f4ee;
+  white-space: pre-wrap;
+}
+
 .discussion-panel {
   position: sticky;
   top: 92px;
@@ -1515,6 +1571,13 @@ h2 {
 .square-route-detail {
   display: grid;
   gap: 12px;
+}
+
+.route-discussion-block {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid #ddd7ca;
 }
 
 .compact-title {
@@ -1554,6 +1617,7 @@ h2 {
 }
 
 .comment-compose textarea,
+.square-compose textarea,
 .ai-workspace textarea {
   width: 100%;
   min-height: 108px;

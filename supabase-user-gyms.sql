@@ -239,3 +239,77 @@ create policy "Users can delete their own comments"
   for delete
   to authenticated
   using (auth.uid() = user_id);
+
+create table if not exists public.public_square_posts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  user_label text not null default '匿名用户',
+  category text not null default '闲聊',
+  title text not null check (length(trim(title)) between 1 and 120),
+  content text not null check (length(trim(content)) between 1 and 3000),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.public_square_posts enable row level security;
+
+drop policy if exists "Anyone can read public square posts" on public.public_square_posts;
+create policy "Anyone can read public square posts"
+  on public.public_square_posts
+  for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "Users can create their own square posts" on public.public_square_posts;
+create policy "Users can create their own square posts"
+  on public.public_square_posts
+  for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own square posts" on public.public_square_posts;
+create policy "Users can update their own square posts"
+  on public.public_square_posts
+  for update
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own square posts" on public.public_square_posts;
+create policy "Users can delete their own square posts"
+  on public.public_square_posts
+  for delete
+  to authenticated
+  using (auth.uid() = user_id);
+
+create table if not exists public.public_square_comments (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.public_square_posts(id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  user_label text not null default '匿名用户',
+  content text not null check (length(trim(content)) between 1 and 1200),
+  created_at timestamptz not null default now()
+);
+
+alter table public.public_square_comments enable row level security;
+
+drop policy if exists "Anyone can read public square comments" on public.public_square_comments;
+create policy "Anyone can read public square comments"
+  on public.public_square_comments
+  for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "Users can comment on square posts as themselves" on public.public_square_comments;
+create policy "Users can comment on square posts as themselves"
+  on public.public_square_comments
+  for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own square comments" on public.public_square_comments;
+create policy "Users can delete their own square comments"
+  on public.public_square_comments
+  for delete
+  to authenticated
+  using (auth.uid() = user_id);
