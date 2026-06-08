@@ -661,6 +661,157 @@ h2 {
   font-weight: 950;
 }
 
+.monthly-stats,
+.challenge-panel {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #ddd7ca;
+}
+
+.monthly-stat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.monthly-stat-header span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.monthly-stat-header small {
+  flex: 0 0 auto;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.monthly-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.monthly-stat-tile {
+  min-height: 70px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f4efe6;
+}
+
+.monthly-stat-tile strong {
+  color: #111827;
+  font-size: 26px;
+  line-height: 1;
+  font-weight: 950;
+}
+
+.monthly-stat-tile span {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.monthly-gym-list,
+.challenge-route-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.challenge-route-list {
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.monthly-gym-row,
+.challenge-route {
+  min-width: 0;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f4efe6;
+}
+
+.challenge-route {
+  width: 100%;
+  border: 1px solid #ddd7ca;
+  color: inherit;
+  background: #fffaf0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.monthly-gym-row span,
+.challenge-route span {
+  min-width: 0;
+}
+
+.monthly-gym-row b,
+.monthly-gym-row small,
+.challenge-route b,
+.challenge-route small {
+  display: block;
+}
+
+.monthly-gym-row b,
+.challenge-route b {
+  overflow: hidden;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monthly-gym-row small,
+.challenge-route small {
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.monthly-gym-row em,
+.challenge-route em {
+  flex: 0 0 auto;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.monthly-gym-row em {
+  color: #374151;
+}
+
+.challenge-route em {
+  min-width: 44px;
+  padding: 0 10px;
+  color: #111827;
+  background: #facc15;
+}
+
 .gym-row {
   width: 100%;
   min-height: 92px;

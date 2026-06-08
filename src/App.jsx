@@ -386,6 +386,70 @@ const buildCalendarDays = (monthKey, entries) => {
   ];
 };
 
+const buildMonthlyPersonalStats = (gyms, monthKey) => {
+  const gymStatsById = {};
+  const visitKeys = new Set();
+  const unsentRoutes = [];
+  let sentCount = 0;
+
+  gyms.forEach((gym) => {
+    const gymStats = gymStatsById[gym.id] || {
+      gymId: gym.id,
+      gymName: gym.name,
+      gymArea: gym.area,
+      visitDates: new Set(),
+      sentCount: 0,
+    };
+
+    gym.routes.forEach((route) => {
+      if (route.sentAt?.startsWith(monthKey)) {
+        sentCount += 1;
+        gymStats.sentCount += 1;
+        gymStats.visitDates.add(route.sentAt);
+        visitKeys.add(`${gym.id}:${route.sentAt}`);
+      }
+
+      if (!route.sentAt) {
+        unsentRoutes.push({
+          gymId: gym.id,
+          gymName: gym.name,
+          gymArea: gym.area,
+          routeId: route.id,
+          routeName: route.name,
+          grade: route.grade.trim().toUpperCase() || '未定级',
+        });
+      }
+    });
+
+    if (gymStats.sentCount || gymStats.visitDates.size) {
+      gymStatsById[gym.id] = gymStats;
+    }
+  });
+
+  return {
+    gymCount: Object.keys(gymStatsById).length,
+    visitCount: visitKeys.size,
+    sentCount,
+    gymStats: Object.values(gymStatsById)
+      .map((gymStats) => ({
+        ...gymStats,
+        visitCount: gymStats.visitDates.size,
+      }))
+      .sort(
+        (gymA, gymB) =>
+          gymB.visitCount - gymA.visitCount ||
+          gymB.sentCount - gymA.sentCount ||
+          gymA.gymName.localeCompare(gymB.gymName, 'zh-CN'),
+      ),
+    unsentRoutes: unsentRoutes.sort(
+      (routeA, routeB) =>
+        routeA.gymName.localeCompare(routeB.gymName, 'zh-CN') ||
+        routeA.grade.localeCompare(routeB.grade, 'zh-CN') ||
+        routeA.routeName.localeCompare(routeB.routeName, 'zh-CN'),
+    ),
+  };
+};
+
 const moveMonth = (monthKey, offset) => {
   const [year, month] = monthKey.split('-').map(Number);
   const next = new Date(year, month - 1 + offset, 1);
@@ -831,6 +895,10 @@ export default function App() {
   }, [sentEntries]);
   const calendarDays = useMemo(() => buildCalendarDays(calendarMonth, sentEntries), [calendarMonth, sentEntries]);
   const entriesForSelectedDate = sentEntries.filter((entry) => entry.sentAt === selectedCalendarDate);
+  const monthlyPersonalStats = useMemo(
+    () => buildMonthlyPersonalStats(gyms, calendarMonth),
+    [calendarMonth, gyms],
+  );
   const publicGymStats = useMemo(
     () => buildPublicGymStats(publicGyms, publicRoutes, calendarMonth, routeImageFingerprints),
     [calendarMonth, publicGyms, publicRoutes, routeImageFingerprints],
@@ -895,6 +963,14 @@ export default function App() {
   const openCalendarRoute = (entry) => {
     setActiveGymId(entry.gymId);
     setActiveRouteId(entry.routeId);
+    setIsEditing(false);
+    setIsEditingGym(false);
+    setAiAnalysis('');
+  };
+
+  const openChallengeRoute = (route) => {
+    setActiveGymId(route.gymId);
+    setActiveRouteId(route.routeId);
     setIsEditing(false);
     setIsEditingGym(false);
     setAiAnalysis('');
@@ -1756,6 +1832,76 @@ export default function App() {
                   </div>
                 ) : (
                   <p className="empty-copy">这天还没有记录过线。</p>
+                )}
+              </div>
+
+              <div className="monthly-stats" aria-label={`${formatMonthLabel(calendarMonth)} 月度统计`}>
+                <div className="monthly-stat-header">
+                  <span>
+                    <Dumbbell size={16} />
+                    本月统计
+                  </span>
+                  <small>{formatMonthLabel(calendarMonth)}</small>
+                </div>
+                <div className="monthly-stat-grid">
+                  <div className="monthly-stat-tile">
+                    <strong>{monthlyPersonalStats.gymCount}</strong>
+                    <span>家岩馆</span>
+                  </div>
+                  <div className="monthly-stat-tile">
+                    <strong>{monthlyPersonalStats.visitCount}</strong>
+                    <span>次到访</span>
+                  </div>
+                  <div className="monthly-stat-tile">
+                    <strong>{monthlyPersonalStats.sentCount}</strong>
+                    <span>条过线</span>
+                  </div>
+                </div>
+
+                {monthlyPersonalStats.gymStats.length ? (
+                  <div className="monthly-gym-list">
+                    {monthlyPersonalStats.gymStats.map((gym) => (
+                      <div className="monthly-gym-row" key={gym.gymId}>
+                        <span>
+                          <b>{gym.gymName}</b>
+                          <small>{gym.gymArea}</small>
+                        </span>
+                        <em>{gym.visitCount} 次 · {gym.sentCount} 条</em>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-copy">这个月还没有过线记录。</p>
+                )}
+              </div>
+
+              <div className="challenge-panel" aria-label="还没有过的线路">
+                <div className="monthly-stat-header">
+                  <span>
+                    <Target size={16} />
+                    未过线挑战
+                  </span>
+                  <small>{monthlyPersonalStats.unsentRoutes.length} 条</small>
+                </div>
+                {monthlyPersonalStats.unsentRoutes.length ? (
+                  <div className="challenge-route-list">
+                    {monthlyPersonalStats.unsentRoutes.map((route) => (
+                      <button
+                        className="challenge-route"
+                        key={`${route.gymId}-${route.routeId}`}
+                        type="button"
+                        onClick={() => openChallengeRoute(route)}
+                      >
+                        <span>
+                          <b>{route.routeName}</b>
+                          <small>{route.gymName} · {route.gymArea}</small>
+                        </span>
+                        <em>{route.grade}</em>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-copy">所有记录里的线路都已经过了，漂亮。可以去添加新的挑战。</p>
                 )}
               </div>
             </div>
