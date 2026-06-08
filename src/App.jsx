@@ -386,11 +386,23 @@ const buildCalendarDays = (monthKey, entries) => {
   ];
 };
 
+const getRouteAddedAt = (route, gym) => {
+  if (route.createdAt || route.addedAt) return (route.createdAt || route.addedAt).slice(0, 10);
+
+  const timestamp = Number(String(route.id || '').split('-')[0]);
+  if (Number.isFinite(timestamp) && timestamp > 0) {
+    return new Date(timestamp).toISOString().slice(0, 10);
+  }
+
+  return (gym.lastVisit || new Date().toISOString()).slice(0, 10);
+};
+
 const buildMonthlyPersonalStats = (gyms, monthKey) => {
   const gymStatsById = {};
   const visitKeys = new Set();
   const unsentRoutes = [];
   let sentCount = 0;
+  let unsentCount = 0;
 
   gyms.forEach((gym) => {
     const gymStats = gymStatsById[gym.id] || {
@@ -399,9 +411,12 @@ const buildMonthlyPersonalStats = (gyms, monthKey) => {
       gymArea: gym.area,
       visitDates: new Set(),
       sentCount: 0,
+      unsentCount: 0,
     };
 
     gym.routes.forEach((route) => {
+      const addedAt = getRouteAddedAt(route, gym);
+
       if (route.sentAt?.startsWith(monthKey)) {
         sentCount += 1;
         gymStats.sentCount += 1;
@@ -409,7 +424,11 @@ const buildMonthlyPersonalStats = (gyms, monthKey) => {
         visitKeys.add(`${gym.id}:${route.sentAt}`);
       }
 
-      if (!route.sentAt) {
+      if (!route.sentAt && addedAt.startsWith(monthKey)) {
+        unsentCount += 1;
+        gymStats.unsentCount += 1;
+        gymStats.visitDates.add(addedAt);
+        visitKeys.add(`${gym.id}:${addedAt}`);
         unsentRoutes.push({
           gymId: gym.id,
           gymName: gym.name,
@@ -421,7 +440,7 @@ const buildMonthlyPersonalStats = (gyms, monthKey) => {
       }
     });
 
-    if (gymStats.sentCount || gymStats.visitDates.size) {
+    if (gymStats.sentCount || gymStats.unsentCount || gymStats.visitDates.size) {
       gymStatsById[gym.id] = gymStats;
     }
   });
@@ -430,6 +449,7 @@ const buildMonthlyPersonalStats = (gyms, monthKey) => {
     gymCount: Object.keys(gymStatsById).length,
     visitCount: visitKeys.size,
     sentCount,
+    unsentCount,
     gymStats: Object.values(gymStatsById)
       .map((gymStats) => ({
         ...gymStats,
@@ -439,6 +459,7 @@ const buildMonthlyPersonalStats = (gyms, monthKey) => {
         (gymA, gymB) =>
           gymB.visitCount - gymA.visitCount ||
           gymB.sentCount - gymA.sentCount ||
+          gymB.unsentCount - gymA.unsentCount ||
           gymA.gymName.localeCompare(gymB.gymName, 'zh-CN'),
       ),
     unsentRoutes: unsentRoutes.sort(
@@ -459,6 +480,40 @@ const moveMonth = (monthKey, offset) => {
 const formatMonthLabel = (monthKey) => {
   const [year, month] = monthKey.split('-');
   return `${year} 年 ${Number(month)} 月`;
+};
+
+const groupGymRoutesByStatusAndMonth = (gym) => {
+  if (!gym) {
+    return { sent: [], unsent: [] };
+  }
+
+  const buildGroups = (routes, getMonthKey) => {
+    const groupsByMonth = routes.reduce((acc, route) => {
+      const monthKey = getMonthKey(route).slice(0, 7);
+      acc[monthKey] = [...(acc[monthKey] || []), route];
+      return acc;
+    }, {});
+
+    return Object.entries(groupsByMonth)
+      .sort(([monthA], [monthB]) => monthB.localeCompare(monthA))
+      .map(([monthKey, routes]) => ({
+        monthKey,
+        routes: routes.sort((routeA, routeB) =>
+          (getMonthKey(routeB) || '').localeCompare(getMonthKey(routeA) || ''),
+        ),
+      }));
+  };
+
+  return {
+    sent: buildGroups(
+      gym.routes.filter((route) => route.sentAt),
+      (route) => route.sentAt,
+    ),
+    unsent: buildGroups(
+      gym.routes.filter((route) => !route.sentAt),
+      (route) => getRouteAddedAt(route, gym),
+    ),
+  };
 };
 
 function UserMenu({ onOpenAuth }) {
@@ -878,6 +933,7 @@ export default function App() {
     () => activeGym?.routes.find((route) => route.id === activeRouteId) || null,
     [activeGym, activeRouteId],
   );
+  const activeGymRouteGroups = useMemo(() => groupGymRoutesByStatusAndMonth(activeGym), [activeGym]);
 
   const totalRoutes = gyms.reduce((sum, gym) => sum + gym.routes.length, 0);
   const sentRoutes = gyms.reduce(
@@ -1193,6 +1249,7 @@ export default function App() {
       name: `未命名线路 ${activeGym.routes.length + 1}`,
       grade: 'V?',
       sentAt: '',
+      createdAt: new Date().toISOString().slice(0, 10),
       imageUrl,
       betaVideoUrl: '',
       notes: '',
@@ -1297,6 +1354,7 @@ export default function App() {
         name: route.name,
         grade: route.grade,
         sentAt: route.sentAt || '',
+        createdAt: getRouteAddedAt(route, gym),
         notes: route.notes ? route.notes.slice(0, 240) : '',
         hasBetaVideo: Boolean(route.betaVideoUrl),
         isPublic: Boolean(route.isPublic),
@@ -1856,6 +1914,10 @@ export default function App() {
                     <strong>{monthlyPersonalStats.sentCount}</strong>
                     <span>条过线</span>
                   </div>
+                  <div className="monthly-stat-tile">
+                    <strong>{monthlyPersonalStats.unsentCount}</strong>
+                    <span>待挑战</span>
+                  </div>
                 </div>
 
                 {monthlyPersonalStats.gymStats.length ? (
@@ -1871,7 +1933,7 @@ export default function App() {
                     ))}
                   </div>
                 ) : (
-                  <p className="empty-copy">这个月还没有过线记录。</p>
+                  <p className="empty-copy">这个月还没有过线记录，也没有待挑战线路。</p>
                 )}
               </div>
 
@@ -2011,16 +2073,72 @@ export default function App() {
             </div>
           </section>
 
-          <section className="route-grid" aria-label="线路照片">
-            {activeGym.routes.map((route) => (
-              <button className="route-card" key={route.id} type="button" onClick={() => selectRoute(route.id)}>
-                <img src={route.imageUrl} alt={`${route.name} 线路照片`} />
-                <span className="route-card-meta">
-                  <strong>{route.name}</strong>
-                  <small>{route.grade} · {route.sentAt || '未记录过线日期'}</small>
-                </span>
-              </button>
-            ))}
+          <section className="gym-route-sections" aria-label="线路照片">
+            <div className="gym-route-section">
+              <div className="route-section-header">
+                <div>
+                  <p className="eyebrow">待挑战</p>
+                  <h2>未过线</h2>
+                </div>
+                <span>{activeGymRouteGroups.unsent.reduce((sum, group) => sum + group.routes.length, 0)} 条</span>
+              </div>
+              {activeGymRouteGroups.unsent.length ? (
+                activeGymRouteGroups.unsent.map((group) => (
+                  <div className="route-month-group" key={`unsent-${group.monthKey}`}>
+                    <div className="route-month-header">
+                      <strong>{formatMonthLabel(group.monthKey)}</strong>
+                      <small>按添加日期</small>
+                    </div>
+                    <div className="route-grid">
+                      {group.routes.map((route) => (
+                        <button className="route-card" key={route.id} type="button" onClick={() => selectRoute(route.id)}>
+                          <img src={route.imageUrl} alt={`${route.name} 线路照片`} />
+                          <span className="route-card-meta">
+                            <strong>{route.name}</strong>
+                            <small>{route.grade} · 添加于 {getRouteAddedAt(route, activeGym)}</small>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="empty-copy">这个岩馆没有未过线线路。</p>
+              )}
+            </div>
+
+            <div className="gym-route-section">
+              <div className="route-section-header">
+                <div>
+                  <p className="eyebrow">完成记录</p>
+                  <h2>已过线</h2>
+                </div>
+                <span>{activeGymRouteGroups.sent.reduce((sum, group) => sum + group.routes.length, 0)} 条</span>
+              </div>
+              {activeGymRouteGroups.sent.length ? (
+                activeGymRouteGroups.sent.map((group) => (
+                  <div className="route-month-group" key={`sent-${group.monthKey}`}>
+                    <div className="route-month-header">
+                      <strong>{formatMonthLabel(group.monthKey)}</strong>
+                      <small>按过线日期</small>
+                    </div>
+                    <div className="route-grid">
+                      {group.routes.map((route) => (
+                        <button className="route-card" key={route.id} type="button" onClick={() => selectRoute(route.id)}>
+                          <img src={route.imageUrl} alt={`${route.name} 线路照片`} />
+                          <span className="route-card-meta">
+                            <strong>{route.name}</strong>
+                            <small>{route.grade} · {route.sentAt}</small>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="empty-copy">这个岩馆还没有已过线记录。</p>
+              )}
+            </div>
           </section>
         </main>
       ) : null}

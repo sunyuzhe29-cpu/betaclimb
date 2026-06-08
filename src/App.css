@@ -694,31 +694,31 @@ h2 {
 
 .monthly-stat-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin-top: 10px;
 }
 
 .monthly-stat-tile {
-  min-height: 70px;
+  min-height: 54px;
   display: grid;
   align-content: center;
-  gap: 3px;
-  padding: 10px;
+  gap: 2px;
+  padding: 8px 10px;
   border-radius: 8px;
   background: #f4efe6;
 }
 
 .monthly-stat-tile strong {
   color: #111827;
-  font-size: 26px;
+  font-size: 20px;
   line-height: 1;
   font-weight: 950;
 }
 
 .monthly-stat-tile span {
   color: #6b7280;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 900;
 }
 
@@ -803,6 +803,9 @@ h2 {
 
 .monthly-gym-row em {
   color: #374151;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 950;
 }
 
 .challenge-route em {
@@ -898,6 +901,57 @@ h2 {
   display: grid;
   align-content: start;
   gap: 14px;
+}
+
+.gym-route-sections {
+  display: grid;
+  gap: 24px;
+}
+
+.gym-route-section {
+  min-width: 0;
+}
+
+.route-section-header,
+.route-month-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.route-section-header {
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #ddd7ca;
+}
+
+.route-section-header span {
+  flex: 0 0 auto;
+  color: #374151;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.route-month-group {
+  display: grid;
+  gap: 12px;
+}
+
+.route-month-group + .route-month-group {
+  margin-top: 18px;
+}
+
+.route-month-header strong {
+  color: #111827;
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.route-month-header small {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .route-grid {
@@ -1578,6 +1632,10 @@ h2 {
   .calendar-day,
   .calendar-blank {
     min-height: 42px;
+  }
+
+  .monthly-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .auth-tabs {
