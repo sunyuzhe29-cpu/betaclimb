@@ -220,18 +220,48 @@ const getHashDistance = (hashA, hashB) => {
   return [...hashA].reduce((distance, bit, index) => distance + (bit === hashB[index] ? 0 : 1), 0);
 };
 
-const groupRoutesByImage = (routes, routeImageFingerprints) =>
+const getNormalizedRouteName = (route) =>
+  normalizeKeyPart(route.route_name)
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+    .replace(/未命名线路\d*/g, '');
+
+const getNormalizedGrade = (route) => normalizeKeyPart(route.grade || '未定级');
+
+const getRouteImageScore = (route) => {
+  const imageUrl = route.route_image_url || '';
+  const sizeHint = imageUrl.startsWith('data:image') ? Math.min(imageUrl.length / 1000, 900) : 120;
+  const hasVideoBonus = route.beta_video_url ? 40 : 0;
+  const hasNotesBonus = route.notes ? 20 : 0;
+  return sizeHint + hasVideoBonus + hasNotesBonus;
+};
+
+const chooseRepresentativeRoute = (routes) =>
+  [...routes].sort((routeA, routeB) => getRouteImageScore(routeB) - getRouteImageScore(routeA))[0] || routes[0];
+
+const shouldMergeRoutes = (group, route, routeHash) => {
+  const representative = group.representative;
+  const nameA = getNormalizedRouteName(representative);
+  const nameB = getNormalizedRouteName(route);
+  const bothNamed = nameA.length >= 2 && nameB.length >= 2;
+  const namesMatch = bothNamed && (nameA === nameB || nameA.includes(nameB) || nameB.includes(nameA));
+  const gradesMatch = getNormalizedGrade(representative) === getNormalizedGrade(route);
+  const imageDistance = getHashDistance(group.imageHash, routeHash);
+  const imagesVeryCloseWithSignal = imageDistance <= 3 && (namesMatch || gradesMatch);
+  const imagesCloseWithSameMetadata = imageDistance <= 8 && namesMatch && gradesMatch;
+
+  return (namesMatch && gradesMatch && imageDistance <= 14) || imagesVeryCloseWithSignal || imagesCloseWithSameMetadata;
+};
+
+const groupRoutesBySimilarity = (routes, routeImageFingerprints) =>
   routes.reduce((groups, route) => {
     const routeHash = routeImageFingerprints[route.id] || route.route_image_url || '';
-    const matchingGroup = groups.find((group) => getHashDistance(group.imageHash, routeHash) <= 6);
+    const matchingGroup = groups.find((group) => shouldMergeRoutes(group, route, routeHash));
 
     if (matchingGroup) {
       matchingGroup.routes.push(route);
       matchingGroup.userIds.add(route.user_id || route.user_label || 'unknown');
       matchingGroup.grades[route.grade || '未定级'] = (matchingGroup.grades[route.grade || '未定级'] || 0) + 1;
-      if (!matchingGroup.representative.sent_at && route.sent_at) {
-        matchingGroup.representative = route;
-      }
+      matchingGroup.representative = chooseRepresentativeRoute(matchingGroup.routes);
       return groups;
     }
 
@@ -292,12 +322,14 @@ const buildPublicGymStats = (gymDirectory = [], routes, monthKey, routeImageFing
       ...gym,
       userCount: gym.userIds.size,
       gradeSummary: Object.entries(gym.grades).sort(([gradeA], [gradeB]) => gradeA.localeCompare(gradeB, 'zh-CN')),
-      routeGroups: groupRoutesByImage(gym.routes, routeImageFingerprints).map((group) => ({
-        ...group,
-        userCount: group.userIds.size,
-        routeCount: group.routes.length,
-        gradeSummary: Object.entries(group.grades).sort(([gradeA], [gradeB]) => gradeA.localeCompare(gradeB, 'zh-CN')),
-      })),
+      routeGroups: groupRoutesBySimilarity(gym.routes, routeImageFingerprints)
+        .map((group) => ({
+          ...group,
+          userCount: group.userIds.size,
+          routeCount: group.routes.length,
+          gradeSummary: Object.entries(group.grades).sort(([gradeA], [gradeB]) => gradeA.localeCompare(gradeB, 'zh-CN')),
+        }))
+        .sort((groupA, groupB) => getRouteImageScore(groupB.representative) - getRouteImageScore(groupA.representative)),
     }))
     .sort((gymA, gymB) => gymB.routeCount - gymA.routeCount || gymA.name.localeCompare(gymB.name, 'zh-CN'));
 };
@@ -401,6 +433,8 @@ export default function App() {
   const [activeGymId, setActiveGymId] = useState('');
   const [activeRouteId, setActiveRouteId] = useState('');
   const [activePublicGymId, setActivePublicGymId] = useState('');
+  const [activePublicGrade, setActivePublicGrade] = useState('');
+  const [activePublicRouteGroupId, setActivePublicRouteGroupId] = useState('');
   const [activeDiscussionRouteId, setActiveDiscussionRouteId] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [isEditingGym, setIsEditingGym] = useState(false);
@@ -435,6 +469,8 @@ export default function App() {
     setActiveView(nextView);
     setActiveGymId('');
     setActiveRouteId('');
+    setActivePublicGrade('');
+    setActivePublicRouteGroupId('');
     setIsEditing(false);
     setIsEditingGym(false);
     setAiAnalysis('');
@@ -782,6 +818,25 @@ export default function App() {
     );
   }, [gymSearchQuery, publicGymStats]);
   const activePublicGym = publicGymStats.find((gym) => gym.id === activePublicGymId) || null;
+  const activePublicRouteGroups = useMemo(() => {
+    if (!activePublicGym) return [];
+    if (!activePublicGrade) return activePublicGym.routeGroups;
+
+    return activePublicGym.routeGroups.filter((group) =>
+      group.routes.some((route) => (route.grade || '未定级') === activePublicGrade),
+    );
+  }, [activePublicGrade, activePublicGym]);
+  const activePublicRouteGroup =
+    activePublicRouteGroups.find((group) => group.id === activePublicRouteGroupId) ||
+    activePublicGym?.routeGroups.find((group) => group.id === activePublicRouteGroupId) ||
+    null;
+
+  useEffect(() => {
+    if (!activePublicRouteGroupId) return;
+    if (activePublicRouteGroups.some((group) => group.id === activePublicRouteGroupId)) return;
+    setActivePublicRouteGroupId('');
+  }, [activePublicRouteGroupId, activePublicRouteGroups]);
+
   const squareRoutes = useMemo(
     () =>
       [...publicRoutes].sort(
@@ -832,6 +887,17 @@ export default function App() {
     setActiveRouteId(routeId);
     setIsEditing(false);
     setAiAnalysis('');
+  };
+
+  const selectPublicGym = (gymId) => {
+    setActivePublicGymId(gymId);
+    setActivePublicGrade('');
+    setActivePublicRouteGroupId('');
+  };
+
+  const selectPublicGrade = (grade) => {
+    setActivePublicGrade((currentGrade) => (currentGrade === grade ? '' : grade));
+    setActivePublicRouteGroupId('');
   };
 
   const openPublicRouteDiscussion = (routeId) => {
@@ -1219,7 +1285,7 @@ export default function App() {
                     className={`public-gym-row ${gym.id === activePublicGymId ? 'active' : ''}`}
                     key={gym.id}
                     type="button"
-                    onClick={() => setActivePublicGymId(gym.id)}
+                    onClick={() => selectPublicGym(gym.id)}
                   >
                     <span>
                       <strong>{gym.name}</strong>
@@ -1246,25 +1312,35 @@ export default function App() {
                   {activePublicGym.gradeSummary.length ? (
                     <div className="grade-grid public-grade-grid">
                       {activePublicGym.gradeSummary.map(([grade, count]) => (
-                        <div className="grade-tile" key={grade}>
+                        <button
+                          className={`grade-tile grade-filter ${activePublicGrade === grade ? 'active' : ''}`}
+                          key={grade}
+                          type="button"
+                          onClick={() => selectPublicGrade(grade)}
+                        >
                           <strong>{grade}</strong>
                           <span>{count} 条</span>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   ) : (
                     <p className="empty-copy">这个岩馆已在目录中，但本月还没有用户公开线路。</p>
                   )}
-                  {activePublicGym.routeGroups.length ? (
+                  {activePublicGrade ? (
+                    <p className="route-filter-note">
+                      正在查看 {activePublicGrade} · {activePublicRouteGroups.length} 条线路
+                    </p>
+                  ) : null}
+                  {activePublicRouteGroups.length ? (
                     <div className="public-route-list">
-                      {activePublicGym.routeGroups.map((group) => {
+                      {activePublicRouteGroups.map((group) => {
                         const route = group.representative;
                         return (
                           <button
-                            className="public-route-item"
+                            className={`public-route-item ${group.id === activePublicRouteGroupId ? 'active' : ''}`}
                             key={group.id}
                             type="button"
-                            onClick={() => openPublicRouteDiscussion(route.id)}
+                            onClick={() => setActivePublicRouteGroupId(group.id)}
                           >
                             <img src={route.route_image_url} alt={`${route.route_name} 线路照片`} />
                             <span>
@@ -1278,6 +1354,48 @@ export default function App() {
                         );
                       })}
                     </div>
+                  ) : null}
+                  {activePublicRouteGroup ? (
+                    <section className="public-route-detail-panel" aria-label="公开线路详情">
+                      <div className="route-detail-heading">
+                        <div>
+                          <p className="eyebrow">线路详情</p>
+                          <h2>{activePublicRouteGroup.representative.route_name}</h2>
+                        </div>
+                        <button
+                          className="ghost-btn compact"
+                          type="button"
+                          onClick={() => openPublicRouteDiscussion(activePublicRouteGroup.representative.id)}
+                        >
+                          <MessageCircle size={17} />
+                          进入讨论
+                        </button>
+                      </div>
+                      <img
+                        className="public-route-detail-image"
+                        src={activePublicRouteGroup.representative.route_image_url}
+                        alt={`${activePublicRouteGroup.representative.route_name} 代表线路照片`}
+                      />
+                      <div className="beta-video-list">
+                        {activePublicRouteGroup.routes.map((route) => (
+                          <article className="beta-video-item" key={route.id}>
+                            <div>
+                              <strong>{route.user_label}</strong>
+                              <small>{route.grade} · {route.sent_at || '未记录完攀日期'}</small>
+                            </div>
+                            {route.beta_video_url ? (
+                              <video src={route.beta_video_url} controls />
+                            ) : (
+                              <p className="empty-copy">这个用户还没有公开视频。</p>
+                            )}
+                            <button className="ghost-btn compact" type="button" onClick={() => openPublicRouteDiscussion(route.id)}>
+                              <MessageCircle size={17} />
+                              讨论这条记录
+                            </button>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
                   ) : null}
                 </>
               ) : (

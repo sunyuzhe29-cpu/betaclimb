@@ -486,6 +486,21 @@ h2 {
   background: #f4efe6;
 }
 
+.grade-filter {
+  cursor: pointer;
+  text-align: left;
+}
+
+.grade-filter.active {
+  border-color: #1f2937;
+  background: #1f2937;
+}
+
+.grade-filter.active strong,
+.grade-filter.active span {
+  color: #fffaf0;
+}
+
 .grade-tile strong {
   color: #111827;
   font-size: 28px;
@@ -1091,12 +1106,88 @@ h2 {
   transform: translateY(-1px);
 }
 
+.public-route-item.active {
+  border-color: #1f2937;
+  background: #e5e7eb;
+}
+
 .public-route-item img {
   width: 82px;
   height: 62px;
   display: block;
   border-radius: 8px;
   object-fit: cover;
+  background: #111827;
+}
+
+.route-filter-note {
+  margin: -4px 0 12px;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.public-route-detail-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #ddd7ca;
+}
+
+.route-detail-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.public-route-detail-image {
+  width: 100%;
+  max-height: 520px;
+  display: block;
+  border: 1px solid #ddd7ca;
+  border-radius: 8px;
+  object-fit: contain;
+  background: #111827;
+}
+
+.beta-video-list {
+  display: grid;
+  gap: 12px;
+}
+
+.beta-video-item {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #ddd7ca;
+  border-radius: 8px;
+  background: #f7f4ee;
+}
+
+.beta-video-item strong,
+.beta-video-item small {
+  display: block;
+}
+
+.beta-video-item strong {
+  color: #111827;
+  font-weight: 950;
+}
+
+.beta-video-item small {
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.beta-video-item video {
+  width: 100%;
+  max-height: 360px;
+  display: block;
+  border-radius: 8px;
   background: #111827;
 }
 
