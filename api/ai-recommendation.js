@@ -1,7 +1,9 @@
 const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
 const AI_GATEWAY_API_URL = 'https://ai-gateway.vercel.sh/v1/responses';
+const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
 const DEFAULT_MODEL = 'gpt-4.1-mini';
 const DEFAULT_GATEWAY_MODEL = 'openai/gpt-4.1-mini';
+const DEFAULT_DEEPSEEK_MODEL = 'deepseek-chat';
 
 const json = (response, status, body) => {
   response.statusCode = status;
@@ -21,6 +23,13 @@ const readJsonBody = async (request) => {
 };
 
 const getOutputText = (payload) => {
+  const chatText = (payload.choices || [])
+    .map((choice) => choice.message?.content || choice.delta?.content || '')
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  if (chatText) return chatText;
+
   if (typeof payload.output_text === 'string') return payload.output_text;
 
   return (payload.output || [])
@@ -31,8 +40,11 @@ const getOutputText = (payload) => {
     .trim();
 };
 
-const getPrompt = ({ need, context }) => `
-你是 BetaClimb 的攀岩训练和线路推荐助手。请用简体中文回答。
+const getPrompt = ({ mode, need, context }) => `
+你是 BetaClimb 的攀岩 AI 助手。请用简体中文回答。
+
+当前模式：
+${mode === 'training' ? '训练计划：重点输出训练安排、强度控制、恢复建议。' : '综合咨询：可以讨论线路 beta、装备选择、岩馆选择、当天攀爬策略。'}
 
 用户今天的描述：
 ${need}
@@ -41,15 +53,26 @@ ${need}
 ${JSON.stringify(context, null, 2)}
 
 请基于这些数据给出实用建议：
-1. 推荐 1-3 个岩馆或线路，并说明原因。
-2. 给出今天 60-120 分钟的训练安排。
-3. 如果数据不足，要明确说明，并给出如何补充记录的建议。
-4. 不要编造不存在的岩馆、线路、距离、价格或营业时间。
-5. 不提供医疗诊断；如果用户描述疼痛或受伤，只给低风险训练调整和休息建议。
-6. 输出要简洁、可执行，适合手机阅读。
+1. 如果是综合咨询，优先回答用户问到的线路、装备、岩馆或当天策略，不强行生成完整训练计划。
+2. 如果是训练计划，给出今天 60-120 分钟的训练安排，包含热身、主训练、收尾和强度控制。
+3. 推荐 1-3 个相关岩馆或线路时，要说明原因。
+4. 如果数据不足，要明确说明，并给出如何补充记录的建议。
+5. 不要编造不存在的岩馆、线路、距离、价格、营业时间或装备价格。
+6. 不提供医疗诊断；如果用户描述疼痛或受伤，只给低风险训练调整和休息建议。
+7. 输出要简洁、可执行，适合手机阅读。
 `;
 
 const getProviderConfig = () => {
+  if (process.env.DEEPSEEK_API_KEY) {
+    return {
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      apiUrl: process.env.DEEPSEEK_API_URL || DEEPSEEK_API_URL,
+      model: process.env.DEEPSEEK_MODEL || DEFAULT_DEEPSEEK_MODEL,
+      provider: 'deepseek',
+      protocol: 'chat-completions',
+    };
+  }
+
   const gatewayKey = process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN;
   if (gatewayKey) {
     return {
@@ -57,6 +80,7 @@ const getProviderConfig = () => {
       apiUrl: AI_GATEWAY_API_URL,
       model: process.env.AI_GATEWAY_MODEL || DEFAULT_GATEWAY_MODEL,
       provider: 'vercel-ai-gateway',
+      protocol: 'responses',
     };
   }
 
@@ -66,10 +90,54 @@ const getProviderConfig = () => {
       apiUrl: OPENAI_API_URL,
       model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
       provider: 'openai',
+      protocol: 'responses',
     };
   }
 
   return null;
+};
+
+const getProviderBody = ({ provider, need, mode, context }) => {
+  const systemContent =
+    '你是专业、谨慎、务实的攀岩助手。你会根据用户记录、公开线路数据和用户当天目标，输出安全且可执行的建议。';
+  const userContent = getPrompt({
+    mode,
+    need,
+    context,
+  });
+
+  if (provider.protocol === 'chat-completions') {
+    return {
+      model: provider.model,
+      messages: [
+        {
+          role: 'system',
+          content: systemContent,
+        },
+        {
+          role: 'user',
+          content: userContent,
+        },
+      ],
+      max_tokens: 900,
+      temperature: 0.45,
+    };
+  }
+
+  return {
+    model: provider.model,
+    input: [
+      {
+        role: 'system',
+        content: systemContent,
+      },
+      {
+        role: 'user',
+        content: userContent,
+      },
+    ],
+    max_output_tokens: 900,
+  };
 };
 
 export default async function handler(request, response) {
@@ -87,13 +155,14 @@ export default async function handler(request, response) {
     const provider = getProviderConfig();
     json(response, 200, {
       hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
+      hasDeepSeekKey: Boolean(process.env.DEEPSEEK_API_KEY),
       hasAiGatewayKey: Boolean(process.env.AI_GATEWAY_API_KEY),
       hasVercelOidcToken: Boolean(process.env.VERCEL_OIDC_TOKEN),
       hasViteOpenAIKey: Boolean(process.env.VITE_OPENAI_API_KEY),
       provider: provider?.provider || 'none',
-      model: provider?.model || process.env.OPENAI_MODEL || DEFAULT_MODEL,
+      model: provider?.model || process.env.OPENAI_MODEL || process.env.DEEPSEEK_MODEL || DEFAULT_MODEL,
       vercelEnv: process.env.VERCEL_ENV || 'unknown',
-      note: 'This endpoint never returns secret values. On Vercel it prefers AI Gateway OIDC, then falls back to OPENAI_API_KEY.',
+      note: 'This endpoint never returns secret values. It prefers DEEPSEEK_API_KEY, then AI Gateway, then OPENAI_API_KEY.',
     });
     return;
   }
@@ -105,7 +174,7 @@ export default async function handler(request, response) {
 
   const provider = getProviderConfig();
   if (!provider) {
-    json(response, 500, { error: '后端还没有可用的 AI 鉴权。请配置 Vercel AI Gateway 或 OPENAI_API_KEY。' });
+    json(response, 500, { error: '后端还没有可用的 AI 鉴权。请配置 DEEPSEEK_API_KEY、Vercel AI Gateway 或 OPENAI_API_KEY。' });
     return;
   }
 
@@ -118,6 +187,7 @@ export default async function handler(request, response) {
   }
 
   const need = String(body.need || '').trim();
+  const mode = body.mode === 'training' ? 'training' : 'consult';
   if (!need) {
     json(response, 400, { error: '请先描述今天的攀岩需求。' });
     return;
@@ -131,29 +201,19 @@ export default async function handler(request, response) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: provider.model,
-        input: [
-          {
-            role: 'system',
-            content:
-              '你是专业、谨慎、务实的攀岩训练助手。你会根据用户记录、公开线路数据和用户当天目标，输出安全且可执行的建议。',
-          },
-          {
-            role: 'user',
-            content: getPrompt({
-              need,
-              context: body.context || {},
-            }),
-          },
-        ],
-        max_output_tokens: 900,
+        ...getProviderBody({
+          provider,
+          need,
+          mode,
+          context: body.context || {},
+        }),
       }),
     });
 
     const payload = await openaiResponse.json();
 
     if (!openaiResponse.ok) {
-      const message = payload?.error?.message || 'OpenAI 请求失败。';
+      const message = payload?.error?.message || 'AI 请求失败。';
       json(response, openaiResponse.status, { error: message });
       return;
     }

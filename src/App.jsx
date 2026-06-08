@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   Dumbbell,
   EyeOff,
   ImagePlus,
@@ -14,6 +15,7 @@ import {
   LogOut,
   MapPin,
   MessageCircle,
+  Package,
   Pencil,
   PlaySquare,
   Plus,
@@ -31,6 +33,7 @@ import {
   Video,
 } from 'lucide-react';
 import './App.css';
+import aiHoldsMascot from './assets/ai-holds-mascot.png';
 import AuthModal from './components/AuthModal';
 import { useAuth } from './context/useAuth';
 import { supabase } from './lib/supabaseClient';
@@ -670,6 +673,27 @@ function OwnBadge({ children = '我' }) {
   return <span className="own-badge">{children}</span>;
 }
 
+const AI_ASSISTANT_MODES = [
+  {
+    id: 'consult',
+    title: '攀岩咨询',
+    description: '线路 beta、装备选择、岩馆取舍和当天策略',
+    icon: MessageCircle,
+    placeholder: '例如：我想买第一双攀岩鞋，脚型偏宽；或者今晚在静安附近找一家适合练 slab 的岩馆。',
+    action: '生成攀岩建议',
+    loading: '正在整理建议...',
+  },
+  {
+    id: 'training',
+    title: '训练计划',
+    description: '把目标、疲劳和记录整理成一次完整训练',
+    icon: ClipboardList,
+    placeholder: '例如：今天想练动态，但肩膀有点累，希望强度控制在 7/10，训练 90 分钟。',
+    action: '生成训练计划',
+    loading: '正在生成计划...',
+  },
+];
+
 export default function App() {
   const { user } = useAuth();
   const [gyms, setGyms] = useState([]);
@@ -683,6 +707,7 @@ export default function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [isEditingGym, setIsEditingGym] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState('');
+  const [aiMode, setAiMode] = useState('consult');
   const [aiNeed, setAiNeed] = useState('');
   const [aiRecommendation, setAiRecommendation] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -1699,7 +1724,7 @@ export default function App() {
     })),
   });
 
-  const getFallbackAiRecommendation = (need) => {
+  const getFallbackAiRecommendation = (need, mode = aiMode) => {
     const candidateGyms = gyms.length ? gyms : publicGymStats;
     const routes = gyms.flatMap((gym) =>
       gym.routes.map((route) => ({
@@ -1720,18 +1745,27 @@ export default function App() {
       .map((route) => `「${route.routeName}」${route.grade} @ ${route.gymName}`)
       .join('、');
 
-    return `根据你的描述：“${need}”\n\n推荐先去 ${gymText || '你最近常去的岩馆'}。今天训练可以分三段：热身 20 分钟，选择 2-3 条低一级线路做脚点和重心练习；主训练 45 分钟，挑一条略有挑战的线路反复拆动作；最后 15 分钟做肩背和髋部放松。\n\n可优先参考：${routeText || '公开广场里本月同城用户分享的线路'}。\n\nAI 后端暂时不可用，这是本地备用建议。`;
+    if (mode === 'training') {
+      return `根据你的描述：“${need}”\n\n推荐先去 ${gymText || '你最近常去的岩馆'}。今天训练可以分三段：热身 20 分钟，选择 2-3 条低一级线路做脚点和重心练习；主训练 45 分钟，挑一条略有挑战的线路反复拆动作；最后 15 分钟做肩背和髋部放松。\n\n可优先参考：${routeText || '公开广场里本月同城用户分享的线路'}。\n\nAI 后端暂时不可用，这是本地备用训练计划。`;
+    }
+
+    return `根据你的描述：“${need}”\n\n可以先围绕 ${gymText || '你最近常去的岩馆'} 做选择。如果你在问线路，优先挑一条略低于极限等级的线路拆 beta；如果你在问装备，先明确脚型、预算、使用场景和可试穿渠道；如果你在问岩馆，优先比较距离、墙型、线路更新频率和同伴情况。\n\n可参考的记录：${routeText || '公开广场里本月同城用户分享的线路'}。\n\nAI 后端暂时不可用，这是本地备用咨询建议。`;
   };
 
   const handleAiRecommendation = async () => {
     const need = aiNeed.trim();
+    const selectedMode = AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0];
     if (!need) {
-      setAiRecommendation('先写下今天的目标，比如“想练脚法，强度不要太大，最好在静安附近”。');
+      setAiRecommendation(
+        aiMode === 'training'
+          ? '先写下今天的训练目标，比如“想练脚法，强度不要太大，训练 90 分钟”。'
+          : '先写下你想问的内容，比如“怎么选第一双攀岩鞋”或“今晚去哪家岩馆练 slab”。',
+      );
       return;
     }
 
     setIsAiLoading(true);
-    setAiRecommendation('正在生成攀岩建议...');
+    setAiRecommendation(selectedMode.loading);
 
     try {
       const response = await fetch('/api/ai-recommendation', {
@@ -1741,6 +1775,7 @@ export default function App() {
         },
         body: JSON.stringify({
           need,
+          mode: aiMode,
           context: getAiContext(),
         }),
       });
@@ -1750,10 +1785,10 @@ export default function App() {
         throw new Error(result.error || 'AI 服务暂时不可用。');
       }
 
-      setAiRecommendation(result.recommendation || getFallbackAiRecommendation(need));
+      setAiRecommendation(result.recommendation || getFallbackAiRecommendation(need, aiMode));
     } catch (error) {
       console.warn('AI 推荐失败', error);
-      setAiRecommendation(`${error.message}\n\n${getFallbackAiRecommendation(need)}`);
+      setAiRecommendation(`${error.message}\n\n${getFallbackAiRecommendation(need, aiMode)}`);
     } finally {
       setIsAiLoading(false);
     }
@@ -2202,28 +2237,95 @@ export default function App() {
       ) : null}
 
       {activeView === 'ai' ? (
-        <main className="public-view">
+        <main className="ai-view">
           <section className="ai-workspace">
-            <div className="section-title">
-              <p className="eyebrow">AI 攀岩助手</p>
-              <h1>今天想怎么爬？</h1>
+            <div className="ai-hero">
+              <div className="ai-hero-copy">
+                <p className="eyebrow">AI 攀岩助手</p>
+                <h1>今天聊点攀岩的。</h1>
+                <p>
+                  可以问线路 beta、装备选择、岩馆安排，也可以单独生成一次训练计划。
+                </p>
+              </div>
+              <img src={aiHoldsMascot} alt="BetaClimb AI 岩点形象" />
             </div>
-            <label className="field">
-              <span>
-                <Target size={16} />
-                你的需求
-              </span>
-              <textarea
-                value={aiNeed}
-                placeholder="例如：今天想练动态，但肩膀有点累，希望路线不要太长，最好能推荐附近岩馆和 3 条线路。"
-                onChange={(event) => setAiNeed(event.target.value)}
-              />
-            </label>
-            <button className="ai-btn ai-submit" type="button" onClick={handleAiRecommendation} disabled={isAiLoading}>
-              <Sparkles size={18} />
-              {isAiLoading ? '正在生成...' : '生成推荐和训练计划'}
-            </button>
-            {aiRecommendation ? <pre className="ai-result">{aiRecommendation}</pre> : null}
+
+            <div className="ai-mode-grid" role="tablist" aria-label="AI 助手类型">
+              {AI_ASSISTANT_MODES.map((mode) => {
+                const Icon = mode.icon;
+
+                return (
+                  <button
+                    className={`ai-mode-card ${aiMode === mode.id ? 'active' : ''}`}
+                    key={mode.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={aiMode === mode.id}
+                    onClick={() => {
+                      setAiMode(mode.id);
+                      setAiRecommendation('');
+                    }}
+                  >
+                    <span className="ai-mode-icon">
+                      <Icon size={18} />
+                    </span>
+                    <strong>{mode.title}</strong>
+                    <small>{mode.description}</small>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="ai-console">
+              <div className="ai-prompt-panel">
+                <label className="field">
+                  <span>
+                    <Target size={16} />
+                    你的需求
+                  </span>
+                  <textarea
+                    value={aiNeed}
+                    placeholder={(AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0]).placeholder}
+                    onChange={(event) => setAiNeed(event.target.value)}
+                  />
+                </label>
+                <div className="ai-chip-row" aria-label="可以咨询的主题">
+                  <span>
+                    <MessageCircle size={14} />
+                    线路 beta
+                  </span>
+                  <span>
+                    <Package size={14} />
+                    装备
+                  </span>
+                  <span>
+                    <Building2 size={14} />
+                    岩馆
+                  </span>
+                  <span>
+                    <Dumbbell size={14} />
+                    训练
+                  </span>
+                </div>
+                <button className="ai-btn ai-submit" type="button" onClick={handleAiRecommendation} disabled={isAiLoading}>
+                  <Sparkles size={18} />
+                  {isAiLoading
+                    ? (AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0]).loading
+                    : (AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0]).action}
+                </button>
+              </div>
+              <div className="ai-result-panel" aria-live="polite">
+                {aiRecommendation ? (
+                  <pre className="ai-result">{aiRecommendation}</pre>
+                ) : (
+                  <div className="ai-empty-state">
+                    <Bot size={22} />
+                    <strong>把问题丢过来</strong>
+                    <p>我会结合你的本地记录和公开线路数据给出回答。</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </section>
         </main>
       ) : null}
