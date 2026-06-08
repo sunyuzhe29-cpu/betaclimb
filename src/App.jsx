@@ -875,6 +875,22 @@ export default function App() {
     [publicRoutes],
   );
   const activeDiscussionRoute = squareRoutes.find((route) => route.id === activeDiscussionRouteId) || null;
+  const activeSquareRouteGroup = useMemo(() => {
+    if (!activeDiscussionRoute) return null;
+
+    const relatedRoutes = squareRoutes.filter((route) => getRouteGymKey(route) === getRouteGymKey(activeDiscussionRoute));
+    return (
+      groupRoutesBySimilarity(relatedRoutes, routeImageFingerprints).find((group) =>
+        group.routes.some((route) => route.id === activeDiscussionRoute.id),
+      ) || {
+        id: activeDiscussionRoute.id,
+        representative: activeDiscussionRoute,
+        routes: [activeDiscussionRoute],
+        routeCount: 1,
+        userCount: 1,
+      }
+    );
+  }, [activeDiscussionRoute, routeImageFingerprints, squareRoutes]);
 
   const openCalendarRoute = (entry) => {
     setActiveGymId(entry.gymId);
@@ -1508,7 +1524,19 @@ export default function App() {
             <div className="square-feed" aria-label="公开线路动态">
               {squareRoutes.length ? (
                 squareRoutes.map((route) => (
-                  <article className="square-post" key={route.id}>
+                  <article
+                    className={`square-post ${route.id === activeDiscussionRouteId ? 'active' : ''}`}
+                    key={route.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setActiveDiscussionRouteId(route.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setActiveDiscussionRouteId(route.id);
+                      }
+                    }}
+                  >
                     <div className="square-post-media">
                       <img src={route.route_image_url} alt={`${route.route_name} 线路照片`} />
                       {route.beta_video_url ? <video src={route.beta_video_url} controls /> : null}
@@ -1524,7 +1552,7 @@ export default function App() {
                       ) : null}
                       <button className="ghost-btn compact" type="button" onClick={() => setActiveDiscussionRouteId(route.id)}>
                         <MessageCircle size={17} />
-                        讨论
+                        查看详情
                       </button>
                     </div>
                   </article>
@@ -1538,9 +1566,45 @@ export default function App() {
             </div>
 
             <aside className="discussion-panel">
-              {activeDiscussionRoute ? (
+              {activeDiscussionRoute && activeSquareRouteGroup ? (
                 <>
                   <div className="section-title">
+                    <p className="eyebrow">{activeDiscussionRoute.gym_name}</p>
+                    <h2>{activeSquareRouteGroup.representative.route_name}</h2>
+                  </div>
+                  <section className="square-route-detail" aria-label="广场线路详情">
+                    <img
+                      className="public-route-detail-image"
+                      src={activeSquareRouteGroup.representative.route_image_url}
+                      alt={`${activeSquareRouteGroup.representative.route_name} 线路完整照片`}
+                    />
+                    <p className="post-meta">
+                      {activeSquareRouteGroup.representative.grade} · {activeSquareRouteGroup.routeCount || activeSquareRouteGroup.routes.length} 次分享 · {activeSquareRouteGroup.userCount || new Set(activeSquareRouteGroup.routes.map((route) => route.user_id || route.user_label)).size} 位用户
+                    </p>
+                    <div className="beta-video-list">
+                      {activeSquareRouteGroup.routes.map((route) => (
+                        <article className="beta-video-item" key={route.id}>
+                          <div>
+                            <strong>{route.user_label}</strong>
+                            <small>{route.grade} · {route.sent_at || '未记录完攀日期'}</small>
+                          </div>
+                          {route.beta_video_url ? (
+                            <video src={route.beta_video_url} controls />
+                          ) : (
+                            <p className="empty-copy">这个用户还没有公开视频。</p>
+                          )}
+                          {route.discussion_prompt || route.notes ? (
+                            <p className="post-copy">{route.discussion_prompt || route.notes}</p>
+                          ) : null}
+                          <button className="ghost-btn compact" type="button" onClick={() => setActiveDiscussionRouteId(route.id)}>
+                            <MessageCircle size={17} />
+                            讨论这条记录
+                          </button>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                  <div className="section-title compact-title">
                     <p className="eyebrow">讨论</p>
                     <h2>{activeDiscussionRoute.route_name}</h2>
                   </div>
