@@ -1,5 +1,7 @@
 const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
+const AI_GATEWAY_API_URL = 'https://ai-gateway.vercel.sh/v1/responses';
 const DEFAULT_MODEL = 'gpt-4.1-mini';
+const DEFAULT_GATEWAY_MODEL = 'openai/gpt-4.1-mini';
 
 const json = (response, status, body) => {
   response.statusCode = status;
@@ -47,6 +49,29 @@ ${JSON.stringify(context, null, 2)}
 6. 输出要简洁、可执行，适合手机阅读。
 `;
 
+const getProviderConfig = () => {
+  const gatewayKey = process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN;
+  if (gatewayKey) {
+    return {
+      apiKey: gatewayKey,
+      apiUrl: AI_GATEWAY_API_URL,
+      model: process.env.AI_GATEWAY_MODEL || DEFAULT_GATEWAY_MODEL,
+      provider: 'vercel-ai-gateway',
+    };
+  }
+
+  if (process.env.OPENAI_API_KEY) {
+    return {
+      apiKey: process.env.OPENAI_API_KEY,
+      apiUrl: OPENAI_API_URL,
+      model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
+      provider: 'openai',
+    };
+  }
+
+  return null;
+};
+
 export default async function handler(request, response) {
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -59,12 +84,16 @@ export default async function handler(request, response) {
   }
 
   if (request.method === 'GET') {
+    const provider = getProviderConfig();
     json(response, 200, {
       hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
+      hasAiGatewayKey: Boolean(process.env.AI_GATEWAY_API_KEY),
+      hasVercelOidcToken: Boolean(process.env.VERCEL_OIDC_TOKEN),
       hasViteOpenAIKey: Boolean(process.env.VITE_OPENAI_API_KEY),
-      model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
+      provider: provider?.provider || 'none',
+      model: provider?.model || process.env.OPENAI_MODEL || DEFAULT_MODEL,
       vercelEnv: process.env.VERCEL_ENV || 'unknown',
-      note: 'This endpoint never returns secret values. Use OPENAI_API_KEY for the server function.',
+      note: 'This endpoint never returns secret values. On Vercel it prefers AI Gateway OIDC, then falls back to OPENAI_API_KEY.',
     });
     return;
   }
@@ -74,8 +103,9 @@ export default async function handler(request, response) {
     return;
   }
 
-  if (!process.env.OPENAI_API_KEY) {
-    json(response, 500, { error: '后端还没有配置 OPENAI_API_KEY。' });
+  const provider = getProviderConfig();
+  if (!provider) {
+    json(response, 500, { error: '后端还没有可用的 AI 鉴权。请配置 Vercel AI Gateway 或 OPENAI_API_KEY。' });
     return;
   }
 
@@ -94,14 +124,14 @@ export default async function handler(request, response) {
   }
 
   try {
-    const openaiResponse = await fetch(OPENAI_API_URL, {
+    const openaiResponse = await fetch(provider.apiUrl, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${provider.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
+        model: provider.model,
         input: [
           {
             role: 'system',
@@ -131,6 +161,7 @@ export default async function handler(request, response) {
     json(response, 200, {
       recommendation: getOutputText(payload),
       model: payload.model,
+      provider: provider.provider,
     });
   } catch (error) {
     json(response, 500, { error: error.message || 'AI 服务请求失败。' });
