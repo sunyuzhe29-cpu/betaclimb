@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Lock, LogIn, Mail, UserPlus, X } from 'lucide-react';
+import { Lock, LogIn, Mail, User, UserPlus, X } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
 const getAuthMessage = (error) => {
@@ -36,6 +36,7 @@ const getAuthRedirectUrl = () => window.location.origin;
 
 export default function AuthModal({ isOpen, onClose }) {
   const [mode, setMode] = useState('login');
+  const [nickname, setNickname] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
@@ -93,8 +94,14 @@ export default function AuthModal({ isOpen, onClose }) {
     setConfirmationEmail('');
 
     const normalizedEmail = email.trim().toLowerCase();
+    const normalizedNickname = nickname.trim();
     if (!normalizedEmail) {
       setMessage('请输入邮箱。');
+      return;
+    }
+
+    if (mode === 'register' && !normalizedNickname) {
+      setMessage('请输入昵称。');
       return;
     }
 
@@ -112,6 +119,9 @@ export default function AuthModal({ isOpen, onClose }) {
               email: normalizedEmail,
               password,
               options: {
+                data: {
+                  nickname: normalizedNickname,
+                },
                 emailRedirectTo: getAuthRedirectUrl(),
               },
             });
@@ -161,6 +171,22 @@ export default function AuthModal({ isOpen, onClose }) {
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
+          {mode === 'register' ? (
+            <label className="field">
+              <span>
+                <User size={16} />
+                昵称
+              </span>
+              <input
+                type="text"
+                value={nickname}
+                onChange={(event) => setNickname(event.target.value)}
+                autoComplete="nickname"
+                maxLength={24}
+                required
+              />
+            </label>
+          ) : null}
           <label className="field">
             <span>
               <Mail size={16} />

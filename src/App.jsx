@@ -105,6 +105,20 @@ const sanitizeStorageSegment = (value, fallback) =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 80) || fallback;
 
+const getUserNickname = (user) => {
+  const metadata = user?.user_metadata || {};
+  const nickname = metadata.nickname || metadata.display_name || metadata.full_name || metadata.name;
+  return String(nickname || '').trim();
+};
+
+const getPublicUserLabel = (user, fallback = '匿名用户') => getUserNickname(user) || fallback;
+
+const getVisibleUserLabel = (label) => {
+  const visibleLabel = String(label || '').trim();
+  if (!visibleLabel || visibleLabel.includes('@')) return '匿名用户';
+  return visibleLabel;
+};
+
 const saveCloudGyms = async (userId, gyms) => {
   if (!supabase || !userId) return { error: null };
 
@@ -141,7 +155,7 @@ const getPublicRoutesFromGyms = (gyms, user) =>
       .map((route) => ({
         id: `${user?.id || 'local'}:${route.id}`,
         user_id: user?.id || 'local',
-        user_label: user?.email || '我',
+        user_label: getPublicUserLabel(user, '我'),
         gym_id: gym.id,
         gym_name: gym.name,
         gym_area: gym.area,
@@ -159,7 +173,7 @@ const getPublicRoutesFromGyms = (gyms, user) =>
 
 const toPublicRoutePayload = (user, gym, route) => ({
   user_id: user.id,
-  user_label: user.email || '匿名用户',
+  user_label: getPublicUserLabel(user),
   gym_id: gym.id,
   gym_name: gym.name,
   gym_area: gym.area,
@@ -176,7 +190,7 @@ const toPublicRoutePayload = (user, gym, route) => ({
 
 const toPublicRoutePayloadFromLocalRoute = (user, route) => ({
   user_id: user.id,
-  user_label: user.email || '匿名用户',
+  user_label: getPublicUserLabel(user),
   gym_id: route.gym_id,
   gym_name: route.gym_name,
   gym_area: route.gym_area,
@@ -546,9 +560,29 @@ const getFavoriteRouteEntries = (gyms) =>
 
 function UserMenu({ onOpenAuth }) {
   const { isAuthLoading, user } = useAuth();
+  const nickname = getUserNickname(user);
+  const visibleName = nickname || '设置昵称';
 
   const handleSignOut = async () => {
     await supabase?.auth.signOut();
+  };
+
+  const handleSetNickname = async () => {
+    const nextNickname = window.prompt('设置昵称', nickname);
+    if (nextNickname === null) return;
+
+    const trimmedNickname = nextNickname.trim();
+    if (!trimmedNickname) return;
+
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        nickname: trimmedNickname,
+      },
+    });
+
+    if (error) {
+      window.alert('昵称保存失败，请稍后再试。');
+    }
   };
 
   if (isAuthLoading) {
@@ -564,14 +598,16 @@ function UserMenu({ onOpenAuth }) {
     );
   }
 
-  const initial = (user.email || 'U').slice(0, 1).toUpperCase();
+  const initial = (nickname || '攀').slice(0, 1).toUpperCase();
 
   return (
     <div className="user-menu" aria-label="当前登录用户">
       <span className="user-avatar" aria-hidden="true">
         {initial}
       </span>
-      <span className="user-email">{user.email}</span>
+      <button className="user-label" type="button" onClick={handleSetNickname}>
+        {visibleName}
+      </button>
       <button className="ghost-btn icon-only" type="button" onClick={handleSignOut} aria-label="退出登录">
         <LogOut size={17} />
       </button>
@@ -1240,7 +1276,7 @@ export default function App() {
       id: `local-${Date.now()}`,
       post_id: activeDiscussionRoute.id,
       user_id: user.id,
-      user_label: user.email || '我',
+      user_label: getPublicUserLabel(user, '我'),
       content,
       created_at: new Date().toISOString(),
     };
@@ -1254,7 +1290,7 @@ export default function App() {
       .from(PUBLIC_COMMENTS_TABLE)
       .insert({
         post_id: activeDiscussionRoute.id,
-        user_label: user.email || '匿名用户',
+        user_label: getPublicUserLabel(user),
         content,
       })
       .select()
@@ -1670,7 +1706,7 @@ export default function App() {
                         {activePublicRouteGroup.routes.map((route) => (
                           <article className="beta-video-item" key={route.id}>
                             <div>
-                              <strong>{route.user_label}</strong>
+                              <strong>{getVisibleUserLabel(route.user_label)}</strong>
                               <small>{route.grade} · {route.sent_at || '未记录完攀日期'}</small>
                             </div>
                             {route.beta_video_url ? (
@@ -1735,7 +1771,7 @@ export default function App() {
                         <p className="eyebrow">{route.gym_name}</p>
                         <h2>{route.route_name}</h2>
                       </div>
-                      <p className="post-meta">{route.grade} · {route.user_label} · {route.sent_at || '未记录完攀日期'}</p>
+                      <p className="post-meta">{route.grade} · {getVisibleUserLabel(route.user_label)} · {route.sent_at || '未记录完攀日期'}</p>
                       {route.discussion_prompt || route.notes ? (
                         <p className="post-copy">{route.discussion_prompt || route.notes}</p>
                       ) : null}
@@ -1774,7 +1810,7 @@ export default function App() {
                       {activeSquareRouteGroup.routes.map((route) => (
                         <article className="beta-video-item" key={route.id}>
                           <div>
-                            <strong>{route.user_label}</strong>
+                            <strong>{getVisibleUserLabel(route.user_label)}</strong>
                             <small>{route.grade} · {route.sent_at || '未记录完攀日期'}</small>
                           </div>
                           {route.beta_video_url ? (
@@ -1801,7 +1837,7 @@ export default function App() {
                     {publicComments.length ? (
                       publicComments.map((comment) => (
                         <div className="comment" key={comment.id}>
-                          <strong>{comment.user_label}</strong>
+                          <strong>{getVisibleUserLabel(comment.user_label)}</strong>
                           <p>{comment.content}</p>
                         </div>
                       ))

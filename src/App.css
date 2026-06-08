@@ -285,10 +285,14 @@ h2 {
   font-weight: 950;
 }
 
-.user-email {
+.user-label {
   max-width: 190px;
   overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #374151;
+  cursor: pointer;
   font-size: 13px;
   font-weight: 900;
   text-overflow: ellipsis;
@@ -1685,7 +1689,7 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .user-email {
+  .user-label {
     max-width: 140px;
   }
 }
