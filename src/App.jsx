@@ -142,6 +142,12 @@ const getVisibleUserLabel = (label) => {
   return visibleLabel;
 };
 
+const isOwnPublicContent = (item, user) => {
+  const itemUserId = String(item?.user_id || '');
+  if (user?.id) return itemUserId === user.id;
+  return itemUserId === 'local';
+};
+
 const saveCloudGyms = async (userId, gyms) => {
   if (!supabase || !userId) return { error: null };
 
@@ -658,6 +664,10 @@ function PublicDataStatus({ status }) {
       </small>
     </div>
   );
+}
+
+function OwnBadge({ children = '我' }) {
+  return <span className="own-badge">{children}</span>;
 }
 
 export default function App() {
@@ -1180,6 +1190,18 @@ export default function App() {
   );
   const activeSquarePost = sortedSquarePosts.find((post) => post.id === activeSquarePostId) || null;
   const activeDiscussionRoute = squareRoutes.find((route) => route.id === activeDiscussionRouteId) || null;
+  const activePublicRouteSections = activePublicRouteGroup
+    ? [
+        {
+          title: '我的记录',
+          routes: activePublicRouteGroup.routes.filter((route) => isOwnPublicContent(route, user)),
+        },
+        {
+          title: '其他人的记录',
+          routes: activePublicRouteGroup.routes.filter((route) => !isOwnPublicContent(route, user)),
+        },
+      ].filter((section) => section.routes.length)
+    : [];
 
   const openCalendarRoute = (entry) => {
     setActiveGymId(entry.gymId);
@@ -1397,6 +1419,7 @@ export default function App() {
       .from(PUBLIC_COMMENTS_TABLE)
       .insert({
         post_id: activeDiscussionRoute.id,
+        user_id: user.id,
         user_label: getPublicUserLabel(user),
         content,
       })
@@ -1498,6 +1521,7 @@ export default function App() {
       .from(PUBLIC_SQUARE_COMMENTS_TABLE)
       .insert({
         post_id: activeSquarePost.id,
+        user_id: user.id,
         user_label: getPublicUserLabel(user),
         content,
       })
@@ -1869,6 +1893,7 @@ export default function App() {
                     <div className="public-route-list">
                       {activePublicRouteGroups.map((group) => {
                         const route = group.representative;
+                        const hasOwnRoute = group.routes.some((groupRoute) => isOwnPublicContent(groupRoute, user));
                         return (
                           <button
                             className={`public-route-item ${group.id === activePublicRouteGroupId ? 'active' : ''}`}
@@ -1878,7 +1903,10 @@ export default function App() {
                           >
                             <img src={route.route_image_url} alt={`${route.route_name} 线路照片`} />
                             <span>
-                              <strong>{route.route_name}</strong>
+                              <strong className="route-title-line">
+                                {route.route_name}
+                                {hasOwnRoute ? <OwnBadge>含我的</OwnBadge> : null}
+                              </strong>
                               <small>
                                 {route.grade} · {group.routeCount} 次分享 · {group.userCount} 位用户 · {route.sent_at || '未记录完攀日期'}
                               </small>
@@ -1903,22 +1931,30 @@ export default function App() {
                         alt={`${activePublicRouteGroup.representative.route_name} 代表线路照片`}
                       />
                       <div className="beta-video-list">
-                        {activePublicRouteGroup.routes.map((route) => (
-                          <article className="beta-video-item" key={route.id}>
-                            <div>
-                              <strong>{getVisibleUserLabel(route.user_label)}</strong>
-                              <small>{route.grade} · {route.sent_at || '未记录完攀日期'}</small>
-                            </div>
-                            {route.beta_video_url ? (
-                              <video src={route.beta_video_url} controls />
-                            ) : (
-                              <p className="empty-copy">这个用户还没有公开视频。</p>
-                            )}
-                            <button className="ghost-btn compact" type="button" onClick={() => openPublicRouteDiscussion(route.id)}>
-                              <MessageCircle size={17} />
-                              讨论这条记录
-                            </button>
-                          </article>
+                        {activePublicRouteSections.map((section) => (
+                          <section className="beta-video-section" key={section.title} aria-label={section.title}>
+                            <h3>{section.title}</h3>
+                            {section.routes.map((route) => (
+                              <article className={`beta-video-item ${isOwnPublicContent(route, user) ? 'own-content' : ''}`} key={route.id}>
+                                <div>
+                                  <strong className="author-line">
+                                    {getVisibleUserLabel(route.user_label)}
+                                    {isOwnPublicContent(route, user) ? <OwnBadge>我的记录</OwnBadge> : null}
+                                  </strong>
+                                  <small>{route.grade} · {route.sent_at || '未记录完攀日期'}</small>
+                                </div>
+                                {route.beta_video_url ? (
+                                  <video src={route.beta_video_url} controls />
+                                ) : (
+                                  <p className="empty-copy">这个用户还没有公开视频。</p>
+                                )}
+                                <button className="ghost-btn compact" type="button" onClick={() => openPublicRouteDiscussion(route.id)}>
+                                  <MessageCircle size={17} />
+                                  讨论这条记录
+                                </button>
+                              </article>
+                            ))}
+                          </section>
                         ))}
                       </div>
                     </section>
@@ -1962,7 +1998,10 @@ export default function App() {
                 />
                 <article className="beta-video-item">
                   <div>
-                    <strong>{getVisibleUserLabel(activeDiscussionRoute.user_label)}</strong>
+                    <strong className="author-line">
+                      {getVisibleUserLabel(activeDiscussionRoute.user_label)}
+                      {isOwnPublicContent(activeDiscussionRoute, user) ? <OwnBadge>我的记录</OwnBadge> : null}
+                    </strong>
                     <small>
                       {activeDiscussionRoute.grade} · {activeDiscussionRoute.sent_at || '未记录完攀日期'}
                     </small>
@@ -1986,8 +2025,11 @@ export default function App() {
                 <div className="comment-list">
                   {publicComments.length ? (
                     publicComments.map((comment) => (
-                      <div className="comment" key={comment.id}>
-                        <strong>{getVisibleUserLabel(comment.user_label)}</strong>
+                      <div className={`comment ${isOwnPublicContent(comment, user) ? 'own-content' : ''}`} key={comment.id}>
+                        <strong className="author-line">
+                          {getVisibleUserLabel(comment.user_label)}
+                          {isOwnPublicContent(comment, user) ? <OwnBadge /> : null}
+                        </strong>
                         <p>{comment.content}</p>
                       </div>
                     ))
@@ -2084,7 +2126,11 @@ export default function App() {
                         <h2>{post.title}</h2>
                       </div>
                       <p className="post-meta">
-                        {getVisibleUserLabel(post.user_label)} · {(post.created_at || '').slice(0, 10) || '刚刚'}
+                        <span className="author-line inline">
+                          {getVisibleUserLabel(post.user_label)}
+                          {isOwnPublicContent(post, user) ? <OwnBadge /> : null}
+                        </span>
+                        · {(post.created_at || '').slice(0, 10) || '刚刚'}
                       </p>
                       <p className="post-copy">{post.content}</p>
                     </div>
@@ -2106,7 +2152,11 @@ export default function App() {
                     <h2>{activeSquarePost.title}</h2>
                   </div>
                   <p className="post-meta">
-                    {getVisibleUserLabel(activeSquarePost.user_label)} · {(activeSquarePost.created_at || '').slice(0, 10) || '刚刚'}
+                    <span className="author-line inline">
+                      {getVisibleUserLabel(activeSquarePost.user_label)}
+                      {isOwnPublicContent(activeSquarePost, user) ? <OwnBadge /> : null}
+                    </span>
+                    · {(activeSquarePost.created_at || '').slice(0, 10) || '刚刚'}
                   </p>
                   <p className="post-copy detail-copy">{activeSquarePost.content}</p>
                   <div className="section-title compact-title">
@@ -2116,8 +2166,11 @@ export default function App() {
                   <div className="comment-list">
                     {squareComments.length ? (
                       squareComments.map((comment) => (
-                        <div className="comment" key={comment.id}>
-                          <strong>{getVisibleUserLabel(comment.user_label)}</strong>
+                        <div className={`comment ${isOwnPublicContent(comment, user) ? 'own-content' : ''}`} key={comment.id}>
+                          <strong className="author-line">
+                            {getVisibleUserLabel(comment.user_label)}
+                            {isOwnPublicContent(comment, user) ? <OwnBadge /> : null}
+                          </strong>
                           <p>{comment.content}</p>
                         </div>
                       ))
