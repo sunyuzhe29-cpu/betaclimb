@@ -447,6 +447,27 @@ h2 {
   font-size: 14px;
 }
 
+.favorite-total {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid #d6cec0;
+  border-radius: 8px;
+  color: #374151;
+  background: #fffaf0;
+  font-size: 13px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.favorite-route-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(260px, 0.72fr) minmax(360px, 1.28fr);
@@ -961,6 +982,7 @@ h2 {
 }
 
 .route-card {
+  position: relative;
   min-width: 0;
   overflow: hidden;
   display: grid;
@@ -989,6 +1011,27 @@ h2 {
   font-size: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.favorite-toggle.active {
+  border-color: #facc15;
+  color: #111827;
+  background: #fef3c7;
+}
+
+.favorite-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #111827;
+  background: #facc15;
+  box-shadow: 0 8px 20px rgba(31, 41, 55, 0.14);
+  pointer-events: none;
 }
 
 .detail-layout {

@@ -22,6 +22,7 @@ import {
   Send,
   Share2,
   Sparkles,
+  Star,
   Target,
   Timer,
   Trash2,
@@ -516,6 +517,33 @@ const groupGymRoutesByStatusAndMonth = (gym) => {
   };
 };
 
+const getFavoriteRouteEntries = (gyms) =>
+  gyms
+    .flatMap((gym) =>
+      gym.routes
+        .filter((route) => route.isFavorite)
+        .map((route) => ({
+          gymId: gym.id,
+          gymName: gym.name,
+          gymArea: gym.area,
+          routeId: route.id,
+          routeName: route.name,
+          grade: route.grade.trim().toUpperCase() || '未定级',
+          sentAt: route.sentAt || '',
+          addedAt: getRouteAddedAt(route, gym),
+          favoriteAt: route.favoriteAt || '',
+          imageUrl: route.imageUrl,
+        })),
+    )
+    .sort(
+      (routeA, routeB) =>
+        (routeB.favoriteAt || routeB.sentAt || routeB.addedAt).localeCompare(
+          routeA.favoriteAt || routeA.sentAt || routeA.addedAt,
+        ) ||
+        routeA.gymName.localeCompare(routeB.gymName, 'zh-CN') ||
+        routeA.routeName.localeCompare(routeB.routeName, 'zh-CN'),
+    );
+
 function UserMenu({ onOpenAuth }) {
   const { isAuthLoading, user } = useAuth();
 
@@ -589,6 +617,7 @@ export default function App() {
   const [aiNeed, setAiNeed] = useState('');
   const [aiRecommendation, setAiRecommendation] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
   const [gymSearchQuery, setGymSearchQuery] = useState('');
   const [publicGyms, setPublicGyms] = useState([]);
   const [publicRoutes, setPublicRoutes] = useState([]);
@@ -618,6 +647,7 @@ export default function App() {
     setActiveRouteId('');
     setActivePublicGrade('');
     setActivePublicRouteGroupId('');
+    setIsFavoritesOpen(false);
     setIsEditing(false);
     setIsEditingGym(false);
     setAiAnalysis('');
@@ -940,6 +970,7 @@ export default function App() {
     (sum, gym) => sum + gym.routes.filter((route) => Boolean(route.sentAt)).length,
     0,
   );
+  const favoriteRoutes = useMemo(() => getFavoriteRouteEntries(gyms), [gyms]);
   const sentEntries = useMemo(() => getSentEntries(gyms), [gyms]);
   const gradeSummary = useMemo(() => {
     const counts = sentEntries.reduce((acc, entry) => {
@@ -1027,6 +1058,17 @@ export default function App() {
   const openChallengeRoute = (route) => {
     setActiveGymId(route.gymId);
     setActiveRouteId(route.routeId);
+    setIsFavoritesOpen(false);
+    setIsEditing(false);
+    setIsEditingGym(false);
+    setAiAnalysis('');
+  };
+
+  const openFavoriteRoute = (route) => {
+    setActiveView('personal');
+    setActiveGymId(route.gymId);
+    setActiveRouteId(route.routeId);
+    setIsFavoritesOpen(false);
     setIsEditing(false);
     setIsEditingGym(false);
     setAiAnalysis('');
@@ -1035,6 +1077,7 @@ export default function App() {
   const selectGym = (gymId) => {
     setActiveGymId(gymId);
     setActiveRouteId('');
+    setIsFavoritesOpen(false);
     setIsEditing(false);
     setIsEditingGym(false);
     setAiAnalysis('');
@@ -1061,6 +1104,7 @@ export default function App() {
 
   const selectRoute = (routeId) => {
     setActiveRouteId(routeId);
+    setIsFavoritesOpen(false);
     setIsEditing(false);
     setAiAnalysis('');
   };
@@ -1127,6 +1171,16 @@ export default function App() {
           : gym,
       ),
     );
+  };
+
+  const toggleFavoriteRoute = () => {
+    if (!activeRoute) return;
+
+    const nextIsFavorite = !activeRoute.isFavorite;
+    updateRoute({
+      isFavorite: nextIsFavorite,
+      favoriteAt: nextIsFavorite ? new Date().toISOString() : '',
+    });
   };
 
   const publishActiveRoute = async (isPublic) => {
@@ -1475,6 +1529,7 @@ export default function App() {
             <span>{gyms.length} 个岩馆</span>
             <span>{totalRoutes} 条线路</span>
             <span>{sentRoutes} 条已过线</span>
+            <span>{favoriteRoutes.length} 条喜爱</span>
           </div>
           <UserMenu onOpenAuth={() => setIsAuthModalOpen(true)} />
         </div>
@@ -1804,17 +1859,71 @@ export default function App() {
         </main>
       ) : null}
 
-      {activeView === 'personal' && !activeGym ? (
+      {activeView === 'personal' && !activeGym && isFavoritesOpen ? (
+        <main className="home-view">
+          <section className="view-header">
+            <button className="ghost-btn" type="button" onClick={() => setIsFavoritesOpen(false)}>
+              <ArrowLeft size={18} />
+              我的
+            </button>
+            <div>
+              <p className="eyebrow">收藏线路</p>
+              <h1>喜爱列表</h1>
+            </div>
+            <span className="favorite-total">
+              <Star size={17} />
+              {favoriteRoutes.length} 条
+            </span>
+          </section>
+
+          {favoriteRoutes.length ? (
+            <section className="favorite-route-grid" aria-label="用户喜爱的线路">
+              {favoriteRoutes.map((route) => (
+                <button
+                  className="route-card favorite-route-card"
+                  key={`${route.gymId}-${route.routeId}`}
+                  type="button"
+                  onClick={() => openFavoriteRoute(route)}
+                >
+                  <img src={route.imageUrl} alt={`${route.routeName} 线路照片`} />
+                  <span className="route-card-meta">
+                    <strong>{route.routeName}</strong>
+                    <small>
+                      {route.grade} · {route.gymName} · {route.sentAt ? `过线于 ${route.sentAt}` : `添加于 ${route.addedAt}`}
+                    </small>
+                  </span>
+                  <span className="favorite-badge" aria-label="已收藏">
+                    <Star size={15} />
+                  </span>
+                </button>
+              ))}
+            </section>
+          ) : (
+            <div className="empty-state">
+              <strong>还没有喜爱的线路</strong>
+              <span>进入线路详情，点亮星标后会出现在这里。</span>
+            </div>
+          )}
+        </main>
+      ) : null}
+
+      {activeView === 'personal' && !activeGym && !isFavoritesOpen ? (
         <main className="home-view">
           <section className="intro-band">
             <div>
               <p className="eyebrow">我的攀岩地图</p>
               <h1>攀岩日历</h1>
             </div>
-            <button className="primary-btn" type="button" onClick={handleCreateGym}>
-              <Plus size={18} />
-              新建岩馆
-            </button>
+            <div className="header-actions">
+              <button className="ghost-btn compact" type="button" onClick={() => setIsFavoritesOpen(true)}>
+                <Star size={18} />
+                喜爱列表
+              </button>
+              <button className="primary-btn" type="button" onClick={handleCreateGym}>
+                <Plus size={18} />
+                新建岩馆
+              </button>
+            </div>
           </section>
 
           <section className="dashboard-grid" aria-label="攀岩概况和日历">
@@ -2097,6 +2206,11 @@ export default function App() {
                             <strong>{route.name}</strong>
                             <small>{route.grade} · 添加于 {getRouteAddedAt(route, activeGym)}</small>
                           </span>
+                          {route.isFavorite ? (
+                            <span className="favorite-badge" aria-label="已收藏">
+                              <Star size={15} />
+                            </span>
+                          ) : null}
                         </button>
                       ))}
                     </div>
@@ -2130,6 +2244,11 @@ export default function App() {
                             <strong>{route.name}</strong>
                             <small>{route.grade} · {route.sentAt}</small>
                           </span>
+                          {route.isFavorite ? (
+                            <span className="favorite-badge" aria-label="已收藏">
+                              <Star size={15} />
+                            </span>
+                          ) : null}
                         </button>
                       ))}
                     </div>
@@ -2154,10 +2273,20 @@ export default function App() {
               <p className="eyebrow">{activeGym.name}</p>
               <h1>{activeRoute.name}</h1>
             </div>
-            <button className="primary-btn compact" type="button" onClick={() => setIsEditing((value) => !value)}>
-              {isEditing ? <Save size={18} /> : <Pencil size={18} />}
-              {isEditing ? '完成' : '编辑'}
-            </button>
+            <div className="header-actions">
+              <button
+                className={`ghost-btn compact favorite-toggle ${activeRoute.isFavorite ? 'active' : ''}`}
+                type="button"
+                onClick={toggleFavoriteRoute}
+              >
+                <Star size={18} />
+                {activeRoute.isFavorite ? '已喜爱' : '标为喜爱'}
+              </button>
+              <button className="primary-btn compact" type="button" onClick={() => setIsEditing((value) => !value)}>
+                {isEditing ? <Save size={18} /> : <Pencil size={18} />}
+                {isEditing ? '完成' : '编辑'}
+              </button>
+            </div>
           </div>
 
           <section className="detail-layout">
