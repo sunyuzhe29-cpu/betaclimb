@@ -28,6 +28,74 @@ create policy "Users can update their own gyms"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+create table if not exists public.public_gyms (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  gym_id text not null,
+  gym_name text not null,
+  gym_area text not null default '未填写',
+  image_url text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, gym_id)
+);
+
+alter table public.public_gyms enable row level security;
+
+drop policy if exists "Anyone can read public gyms" on public.public_gyms;
+create policy "Anyone can read public gyms"
+  on public.public_gyms
+  for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "Users can publish their own gyms" on public.public_gyms;
+create policy "Users can publish their own gyms"
+  on public.public_gyms
+  for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own gyms in public directory" on public.public_gyms;
+create policy "Users can update their own gyms in public directory"
+  on public.public_gyms
+  for update
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own gyms from public directory" on public.public_gyms;
+create policy "Users can delete their own gyms from public directory"
+  on public.public_gyms
+  for delete
+  to authenticated
+  using (auth.uid() = user_id);
+
+insert into public.public_gyms (
+  user_id,
+  gym_id,
+  gym_name,
+  gym_area,
+  image_url,
+  updated_at
+)
+select
+  user_gyms.user_id,
+  coalesce(gym ->> 'id', gym ->> 'name'),
+  coalesce(nullif(gym ->> 'name', ''), '未命名岩馆'),
+  coalesce(nullif(gym ->> 'area', ''), '未填写'),
+  coalesce(gym ->> 'imageUrl', ''),
+  now()
+from public.user_gyms
+cross join lateral jsonb_array_elements(user_gyms.gyms) as gym
+where coalesce(gym ->> 'id', gym ->> 'name') is not null
+on conflict (user_id, gym_id)
+do update set
+  gym_name = excluded.gym_name,
+  gym_area = excluded.gym_area,
+  image_url = excluded.image_url,
+  updated_at = excluded.updated_at;
+
 create table if not exists public.public_route_posts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,

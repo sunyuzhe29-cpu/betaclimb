@@ -948,6 +948,29 @@ h2 {
   gap: 12px;
 }
 
+.gym-search {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -6px 0 18px;
+  padding: 0 13px;
+  border: 1px solid #d6cec0;
+  border-radius: 8px;
+  color: #6b7280;
+  background: #fffaf0;
+}
+
+.gym-search input {
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  border: 0;
+  color: #111827;
+  background: transparent;
+  outline: 0;
+}
+
 .public-sync-status {
   display: flex;
   align-items: center;
@@ -1052,13 +1075,20 @@ h2 {
 .public-route-item {
   min-width: 0;
   display: grid;
-  grid-template-columns: 82px 1fr;
+  grid-template-columns: 82px 1fr auto;
   align-items: center;
   gap: 12px;
   padding: 10px;
   border: 1px solid #ddd7ca;
   border-radius: 8px;
+  color: inherit;
   background: #f7f4ee;
+  cursor: pointer;
+  text-align: left;
+}
+
+.public-route-item:hover {
+  transform: translateY(-1px);
 }
 
 .public-route-item img {

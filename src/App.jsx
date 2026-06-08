@@ -18,6 +18,7 @@ import {
   PlaySquare,
   Plus,
   Save,
+  Search,
   Send,
   Share2,
   Sparkles,
@@ -50,6 +51,7 @@ const gymImage = (base, accent, label) =>
 const STORAGE_PREFIX = 'betaclimb:gyms';
 const GUEST_STORAGE_KEY = `${STORAGE_PREFIX}:guest`;
 const CLOUD_GYMS_TABLE = 'user_gyms';
+const PUBLIC_GYMS_TABLE = 'public_gyms';
 const PUBLIC_ROUTES_TABLE = 'public_route_posts';
 const PUBLIC_COMMENTS_TABLE = 'public_route_comments';
 
@@ -160,38 +162,144 @@ const toPublicRoutePayloadFromLocalRoute = (user, route) => ({
   updated_at: new Date().toISOString(),
 });
 
+const toPublicGymPayload = (user, gym) => ({
+  user_id: user.id,
+  gym_id: gym.id,
+  gym_name: gym.name,
+  gym_area: gym.area || '未填写',
+  image_url: gym.imageUrl || '',
+  updated_at: new Date().toISOString(),
+});
+
 const getCurrentMonthRoutes = (routes, monthKey) =>
   routes.filter((route) => (route.sent_at || route.created_at || '').startsWith(monthKey));
 
-const buildPublicGymStats = (routes, monthKey) => {
+const normalizeKeyPart = (value) => String(value || '').trim().toLowerCase();
+
+const getGymDirectoryKey = (gym) =>
+  `${normalizeKeyPart(gym.gym_name || gym.name || gym.gym_id || gym.id)}::${normalizeKeyPart(gym.gym_area || gym.area)}`;
+
+const getRouteGymKey = (route) =>
+  `${normalizeKeyPart(route.gym_name || route.gym_id)}::${normalizeKeyPart(route.gym_area)}`;
+
+const getImageFingerprint = (imageUrl) =>
+  new Promise((resolve) => {
+    if (!imageUrl) {
+      resolve('');
+      return;
+    }
+
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 8;
+        canvas.height = 8;
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0, 8, 8);
+        const { data } = context.getImageData(0, 0, 8, 8);
+        const values = [];
+
+        for (let index = 0; index < data.length; index += 4) {
+          values.push((data[index] + data[index + 1] + data[index + 2]) / 3);
+        }
+
+        const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+        resolve(values.map((value) => (value >= average ? '1' : '0')).join(''));
+      } catch {
+        resolve(imageUrl.slice(0, 120));
+      }
+    };
+    image.onerror = () => resolve(imageUrl.slice(0, 120));
+    image.src = imageUrl;
+  });
+
+const getHashDistance = (hashA, hashB) => {
+  if (!hashA || !hashB || hashA.length !== hashB.length) return Number.POSITIVE_INFINITY;
+  return [...hashA].reduce((distance, bit, index) => distance + (bit === hashB[index] ? 0 : 1), 0);
+};
+
+const groupRoutesByImage = (routes, routeImageFingerprints) =>
+  routes.reduce((groups, route) => {
+    const routeHash = routeImageFingerprints[route.id] || route.route_image_url || '';
+    const matchingGroup = groups.find((group) => getHashDistance(group.imageHash, routeHash) <= 6);
+
+    if (matchingGroup) {
+      matchingGroup.routes.push(route);
+      matchingGroup.userIds.add(route.user_id || route.user_label || 'unknown');
+      matchingGroup.grades[route.grade || '未定级'] = (matchingGroup.grades[route.grade || '未定级'] || 0) + 1;
+      if (!matchingGroup.representative.sent_at && route.sent_at) {
+        matchingGroup.representative = route;
+      }
+      return groups;
+    }
+
+    groups.push({
+      id: `${route.gym_id || route.gym_name}:${routeHash || route.id}`,
+      imageHash: routeHash,
+      representative: route,
+      routes: [route],
+      userIds: new Set([route.user_id || route.user_label || 'unknown']),
+      grades: {
+        [route.grade || '未定级']: 1,
+      },
+    });
+    return groups;
+  }, []);
+
+const buildPublicGymStats = (gymDirectory = [], routes, monthKey, routeImageFingerprints) => {
   const routesThisMonth = getCurrentMonthRoutes(routes, monthKey);
-  const statsByGym = routesThisMonth.reduce((acc, route) => {
-    const gymId = route.gym_id || route.gym_name;
-    const current = acc[gymId] || {
+  const statsByGym = gymDirectory.reduce((acc, gym) => {
+    const gymId = getGymDirectoryKey(gym);
+    acc[gymId] = {
       id: gymId,
-      name: route.gym_name || '未命名岩馆',
-      area: route.gym_area || '未填写',
+      name: gym.gym_name || gym.name || '未命名岩馆',
+      area: gym.gym_area || gym.area || '未填写',
+      imageUrl: gym.image_url || gym.imageUrl || '',
       routeCount: 0,
       userIds: new Set(),
       grades: {},
       routes: [],
+      routeGroups: [],
+    };
+    return acc;
+  }, {});
+
+  routesThisMonth.forEach((route) => {
+    const gymId = getRouteGymKey(route);
+    const current = statsByGym[gymId] || {
+      id: gymId,
+      name: route.gym_name || '未命名岩馆',
+      area: route.gym_area || '未填写',
+      imageUrl: '',
+      routeCount: 0,
+      userIds: new Set(),
+      grades: {},
+      routes: [],
+      routeGroups: [],
     };
 
     current.routeCount += 1;
     current.userIds.add(route.user_id || route.user_label || 'unknown');
     current.grades[route.grade || '未定级'] = (current.grades[route.grade || '未定级'] || 0) + 1;
     current.routes.push(route);
-    acc[gymId] = current;
-    return acc;
-  }, {});
+    statsByGym[gymId] = current;
+  });
 
   return Object.values(statsByGym)
     .map((gym) => ({
       ...gym,
       userCount: gym.userIds.size,
       gradeSummary: Object.entries(gym.grades).sort(([gradeA], [gradeB]) => gradeA.localeCompare(gradeB, 'zh-CN')),
+      routeGroups: groupRoutesByImage(gym.routes, routeImageFingerprints).map((group) => ({
+        ...group,
+        userCount: group.userIds.size,
+        routeCount: group.routes.length,
+        gradeSummary: Object.entries(group.grades).sort(([gradeA], [gradeB]) => gradeA.localeCompare(gradeB, 'zh-CN')),
+      })),
     }))
-    .sort((gymA, gymB) => gymB.routeCount - gymA.routeCount);
+    .sort((gymA, gymB) => gymB.routeCount - gymA.routeCount || gymA.name.localeCompare(gymB.name, 'zh-CN'));
 };
 
 const buildCalendarDays = (monthKey, entries) => {
@@ -300,7 +408,10 @@ export default function App() {
   const [aiNeed, setAiNeed] = useState('');
   const [aiRecommendation, setAiRecommendation] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [gymSearchQuery, setGymSearchQuery] = useState('');
+  const [publicGyms, setPublicGyms] = useState([]);
   const [publicRoutes, setPublicRoutes] = useState([]);
+  const [routeImageFingerprints, setRouteImageFingerprints] = useState({});
   const [publicDataStatus, setPublicDataStatus] = useState({
     state: 'idle',
     remoteCount: 0,
@@ -392,6 +503,71 @@ export default function App() {
       isActive = false;
     };
   }, [storageKey, user]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadPublicGyms = async () => {
+      const localPublicGyms = gyms.map((gym) => ({
+        id: gym.id,
+        gym_id: gym.id,
+        gym_name: gym.name,
+        gym_area: gym.area || '未填写',
+        image_url: gym.imageUrl || '',
+      }));
+
+      if (!supabase) {
+        setPublicGyms(localPublicGyms);
+        return;
+      }
+
+      let syncedGyms = [];
+      if (user && gyms.length) {
+        const { data: syncedData, error: syncError } = await supabase
+          .from(PUBLIC_GYMS_TABLE)
+          .upsert(gyms.map((gym) => toPublicGymPayload(user, gym)), {
+            onConflict: 'user_id,gym_id',
+          })
+          .select('*');
+
+        if (!isActive) return;
+
+        if (syncError) {
+          console.warn('公开岩馆目录同步失败。', syncError);
+        } else {
+          syncedGyms = Array.isArray(syncedData) ? syncedData : [];
+        }
+      }
+
+      const { data, error } = await supabase
+        .from(PUBLIC_GYMS_TABLE)
+        .select('*')
+        .order('updated_at', { ascending: false })
+        .limit(240);
+
+      if (!isActive) return;
+
+      if (error) {
+        console.warn('公开岩馆目录不可用，使用本机岩馆目录。', error);
+        setPublicGyms(localPublicGyms);
+        return;
+      }
+
+      const remoteGyms = Array.isArray(data) ? data : [];
+      const syncedGymKeys = new Set(syncedGyms.map((gym) => `${gym.user_id}:${gym.gym_id}`));
+      const mergedGyms = [
+        ...syncedGyms,
+        ...remoteGyms.filter((gym) => !syncedGymKeys.has(`${gym.user_id}:${gym.gym_id}`)),
+      ];
+      setPublicGyms(mergedGyms.length ? mergedGyms : localPublicGyms);
+    };
+
+    loadPublicGyms();
+
+    return () => {
+      isActive = false;
+    };
+  }, [gyms, user]);
 
   useEffect(() => {
     let isActive = true;
@@ -491,6 +667,32 @@ export default function App() {
   useEffect(() => {
     let isActive = true;
 
+    const loadRouteImageFingerprints = async () => {
+      const missingRoutes = publicRoutes.filter((route) => route.route_image_url && !routeImageFingerprints[route.id]);
+      if (!missingRoutes.length) return;
+
+      const nextEntries = await Promise.all(
+        missingRoutes.map(async (route) => [route.id, await getImageFingerprint(route.route_image_url)]),
+      );
+
+      if (!isActive) return;
+
+      setRouteImageFingerprints((currentFingerprints) => ({
+        ...currentFingerprints,
+        ...Object.fromEntries(nextEntries),
+      }));
+    };
+
+    loadRouteImageFingerprints();
+
+    return () => {
+      isActive = false;
+    };
+  }, [publicRoutes, routeImageFingerprints]);
+
+  useEffect(() => {
+    let isActive = true;
+
     const loadComments = async () => {
       if (!supabase || !activeDiscussionRouteId) {
         setPublicComments([]);
@@ -565,7 +767,20 @@ export default function App() {
   }, [sentEntries]);
   const calendarDays = useMemo(() => buildCalendarDays(calendarMonth, sentEntries), [calendarMonth, sentEntries]);
   const entriesForSelectedDate = sentEntries.filter((entry) => entry.sentAt === selectedCalendarDate);
-  const publicGymStats = useMemo(() => buildPublicGymStats(publicRoutes, calendarMonth), [calendarMonth, publicRoutes]);
+  const publicGymStats = useMemo(
+    () => buildPublicGymStats(publicGyms, publicRoutes, calendarMonth, routeImageFingerprints),
+    [calendarMonth, publicGyms, publicRoutes, routeImageFingerprints],
+  );
+  const filteredPublicGymStats = useMemo(() => {
+    const query = gymSearchQuery.trim().toLowerCase();
+    if (!query) return publicGymStats;
+
+    return publicGymStats.filter((gym) =>
+      [gym.name, gym.area]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(query)),
+    );
+  }, [gymSearchQuery, publicGymStats]);
   const activePublicGym = publicGymStats.find((gym) => gym.id === activePublicGymId) || null;
   const squareRoutes = useMemo(
     () =>
@@ -617,6 +832,15 @@ export default function App() {
     setActiveRouteId(routeId);
     setIsEditing(false);
     setAiAnalysis('');
+  };
+
+  const openPublicRouteDiscussion = (routeId) => {
+    setActiveView('square');
+    setActiveDiscussionRouteId(routeId);
+    setActiveGymId('');
+    setActiveRouteId('');
+    setIsEditing(false);
+    setIsEditingGym(false);
   };
 
   const updateActiveGym = (updates) => {
@@ -977,10 +1201,20 @@ export default function App() {
           </section>
           <PublicDataStatus status={publicDataStatus} />
 
+          <label className="gym-search" aria-label="搜索岩馆">
+            <Search size={17} />
+            <input
+              type="search"
+              value={gymSearchQuery}
+              placeholder="搜索岩馆名称或区域"
+              onChange={(event) => setGymSearchQuery(event.target.value)}
+            />
+          </label>
+
           <section className="public-grid">
             <div className="public-list" aria-label="公开岩馆列表">
-              {publicGymStats.length ? (
-                publicGymStats.map((gym) => (
+              {filteredPublicGymStats.length ? (
+                filteredPublicGymStats.map((gym) => (
                   <button
                     className={`public-gym-row ${gym.id === activePublicGymId ? 'active' : ''}`}
                     key={gym.id}
@@ -989,15 +1223,15 @@ export default function App() {
                   >
                     <span>
                       <strong>{gym.name}</strong>
-                      <small>{gym.area} · {gym.routeCount} 条公开线路 · {gym.userCount} 位用户</small>
+                      <small>{gym.area} · {gym.routeCount} 条本月公开线路 · {gym.userCount} 位用户</small>
                     </span>
                     <ChevronRight size={18} />
                   </button>
                 ))
               ) : (
                 <div className="empty-state">
-                  <strong>这个月还没有公开线路</strong>
-                  <span>用户在单条线路里同意公开后，这里会自动按岩馆汇总。</span>
+                  <strong>{gymSearchQuery.trim() ? '没有找到岩馆' : '还没有公开岩馆'}</strong>
+                  <span>{gymSearchQuery.trim() ? '换个关键词试试。' : '用户创建过的岩馆会出现在这里，线路仍需同意公开后才显示。'}</span>
                 </div>
               )}
             </div>
@@ -1009,25 +1243,42 @@ export default function App() {
                     <p className="eyebrow">{activePublicGym.area}</p>
                     <h2>{activePublicGym.name}</h2>
                   </div>
-                  <div className="grade-grid public-grade-grid">
-                    {activePublicGym.gradeSummary.map(([grade, count]) => (
-                      <div className="grade-tile" key={grade}>
-                        <strong>{grade}</strong>
-                        <span>{count} 条</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="public-route-list">
-                    {activePublicGym.routes.map((route) => (
-                      <article className="public-route-item" key={route.id}>
-                        <img src={route.route_image_url} alt={`${route.route_name} 线路照片`} />
-                        <span>
-                          <strong>{route.route_name}</strong>
-                          <small>{route.grade} · {route.user_label} · {route.sent_at || '未记录完攀日期'}</small>
-                        </span>
-                      </article>
-                    ))}
-                  </div>
+                  {activePublicGym.gradeSummary.length ? (
+                    <div className="grade-grid public-grade-grid">
+                      {activePublicGym.gradeSummary.map(([grade, count]) => (
+                        <div className="grade-tile" key={grade}>
+                          <strong>{grade}</strong>
+                          <span>{count} 条</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="empty-copy">这个岩馆已在目录中，但本月还没有用户公开线路。</p>
+                  )}
+                  {activePublicGym.routeGroups.length ? (
+                    <div className="public-route-list">
+                      {activePublicGym.routeGroups.map((group) => {
+                        const route = group.representative;
+                        return (
+                          <button
+                            className="public-route-item"
+                            key={group.id}
+                            type="button"
+                            onClick={() => openPublicRouteDiscussion(route.id)}
+                          >
+                            <img src={route.route_image_url} alt={`${route.route_name} 线路照片`} />
+                            <span>
+                              <strong>{route.route_name}</strong>
+                              <small>
+                                {route.grade} · {group.routeCount} 次分享 · {group.userCount} 位用户 · {route.sent_at || '未记录完攀日期'}
+                              </small>
+                            </span>
+                            <MessageCircle size={18} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <div className="empty-state">
