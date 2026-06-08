@@ -89,16 +89,18 @@ const writeStoredGyms = (storageKey, gyms) => {
 };
 
 const sanitizeStorageName = (name) =>
-  name
+  String(name || 'beta-video')
     .trim()
-    .replace(/[^\p{L}\p{N}._-]+/gu, '-')
+    .normalize('NFKD')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 90) || 'beta-video';
 
 const sanitizeStorageSegment = (value, fallback) =>
   String(value || fallback)
     .replace(/data:[^,]+,/g, '')
-    .replace(/[^\p{L}\p{N}._-]+/gu, '-')
+    .normalize('NFKD')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80) || fallback;
 
@@ -1130,10 +1132,8 @@ export default function App() {
 
       if (supabase && user) {
         const extension = sanitizeStorageSegment(file.name.includes('.') ? file.name.split('.').pop() : 'mp4', 'mp4');
-        const fileName = `${Date.now()}-${sanitizeStorageName(file.name || `beta.${extension}`)}`;
-        const gymSegment = sanitizeStorageSegment(activeGym.id, 'gym');
-        const routeSegment = sanitizeStorageSegment(activeRoute.id, 'route');
-        const filePath = `${user.id}/${gymSegment}/${routeSegment}/${fileName}`;
+        const fileName = `${Date.now()}-${crypto.randomUUID()}-${sanitizeStorageName(file.name || `beta.${extension}`)}`;
+        const filePath = `${user.id}/${fileName}`;
         const { error } = await supabase.storage
           .from(BETA_VIDEO_BUCKET)
           .upload(filePath, file, {
