@@ -2197,23 +2197,47 @@ export default function App() {
           </section>
 
           <section className="dashboard-grid" aria-label="攀岩概况和日历">
-            <div className="overview-panel">
-              <div className="section-title">
-                <p className="eyebrow">概况</p>
-                <h2>已过线难度统计</h2>
-              </div>
-              {gradeSummary.length ? (
-                <div className="grade-grid">
-                  {gradeSummary.map(([grade, count]) => (
-                    <div className="grade-tile" key={grade}>
-                      <strong>{grade}</strong>
-                      <span>{count} 条</span>
-                    </div>
-                  ))}
+            <div className="home-sidebar">
+              <div className="overview-panel">
+                <div className="section-title">
+                  <p className="eyebrow">概况</p>
+                  <h2>已过线难度统计</h2>
                 </div>
-              ) : (
-                <p className="empty-copy">还没有带过线日期的线路。</p>
-              )}
+                {gradeSummary.length ? (
+                  <div className="grade-grid">
+                    {gradeSummary.map(([grade, count]) => (
+                      <div className="grade-tile" key={grade}>
+                        <strong>{grade}</strong>
+                        <span>{count} 条</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-copy">还没有带过线日期的线路。</p>
+                )}
+              </div>
+
+              <section className="gym-list" aria-label="用户爬过的岩馆">
+                {gyms.length ? (
+                  gyms.map((gym) => (
+                    <button className="gym-row" key={gym.id} type="button" onClick={() => selectGym(gym.id)}>
+                      <img className="gym-cover-thumb" src={gym.imageUrl} alt={`${gym.name} 门店照片`} />
+                      <span className="gym-info">
+                        <strong>{gym.name}</strong>
+                        <small>
+                          {gym.area} · {gym.routes.length} 条线路 · 最近 {gym.lastVisit}
+                        </small>
+                      </span>
+                      <ChevronRight size={20} />
+                    </button>
+                  ))
+                ) : (
+                  <div className="empty-state">
+                    <strong>还没有岩馆记录</strong>
+                    <span>点“新建岩馆”开始记录自己的线路、照片和 beta 视频。</span>
+                  </div>
+                )}
+              </section>
             </div>
 
             <div className="calendar-panel">
@@ -2346,28 +2370,6 @@ export default function App() {
                 )}
               </div>
             </div>
-          </section>
-
-          <section className="gym-list" aria-label="用户爬过的岩馆">
-            {gyms.length ? (
-              gyms.map((gym) => (
-                <button className="gym-row" key={gym.id} type="button" onClick={() => selectGym(gym.id)}>
-                  <img className="gym-cover-thumb" src={gym.imageUrl} alt={`${gym.name} 门店照片`} />
-                  <span className="gym-info">
-                    <strong>{gym.name}</strong>
-                    <small>
-                      {gym.area} · {gym.routes.length} 条线路 · 最近 {gym.lastVisit}
-                    </small>
-                  </span>
-                  <ChevronRight size={20} />
-                </button>
-              ))
-            ) : (
-              <div className="empty-state">
-                <strong>还没有岩馆记录</strong>
-                <span>点“新建岩馆”开始记录自己的线路、照片和 beta 视频。</span>
-              </div>
-            )}
           </section>
         </main>
       ) : null}

@@ -479,6 +479,13 @@ h2 {
   margin-bottom: 22px;
 }
 
+.home-sidebar {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
 .overview-panel,
 .calendar-panel {
   min-width: 0;
@@ -855,6 +862,21 @@ h2 {
   cursor: pointer;
   text-align: left;
   box-shadow: 0 14px 36px rgba(31, 41, 55, 0.06);
+}
+
+.home-sidebar .gym-row {
+  min-height: 84px;
+  grid-template-columns: 76px 1fr auto;
+  padding: 12px;
+}
+
+.home-sidebar .gym-cover-thumb {
+  width: 76px;
+  height: 56px;
+}
+
+.home-sidebar .gym-info strong {
+  font-size: 18px;
 }
 
 .gym-cover-thumb {
