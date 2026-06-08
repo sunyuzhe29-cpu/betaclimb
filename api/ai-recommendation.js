@@ -58,6 +58,17 @@ export default async function handler(request, response) {
     return;
   }
 
+  if (request.method === 'GET') {
+    json(response, 200, {
+      hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
+      hasViteOpenAIKey: Boolean(process.env.VITE_OPENAI_API_KEY),
+      model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
+      vercelEnv: process.env.VERCEL_ENV || 'unknown',
+      note: 'This endpoint never returns secret values. Use OPENAI_API_KEY for the server function.',
+    });
+    return;
+  }
+
   if (request.method !== 'POST') {
     json(response, 405, { error: '只支持 POST 请求。' });
     return;
