@@ -299,6 +299,7 @@ export default function App() {
   const [aiAnalysis, setAiAnalysis] = useState('');
   const [aiNeed, setAiNeed] = useState('');
   const [aiRecommendation, setAiRecommendation] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
   const [publicRoutes, setPublicRoutes] = useState([]);
   const [publicDataStatus, setPublicDataStatus] = useState({
     state: 'idle',
@@ -817,13 +818,41 @@ export default function App() {
     );
   };
 
-  const handleAiRecommendation = () => {
-    const need = aiNeed.trim();
-    if (!need) {
-      setAiRecommendation('先写下今天的目标，比如“想练脚法，强度不要太大，最好在静安附近”。');
-      return;
-    }
+  const getAiContext = () => ({
+    month: calendarMonth,
+    personalGyms: gyms.slice(0, 8).map((gym) => ({
+      name: gym.name,
+      area: gym.area,
+      lastVisit: gym.lastVisit,
+      routeCount: gym.routes.length,
+      sentCount: gym.routes.filter((route) => route.sentAt).length,
+      routes: gym.routes.slice(0, 10).map((route) => ({
+        name: route.name,
+        grade: route.grade,
+        sentAt: route.sentAt || '',
+        notes: route.notes ? route.notes.slice(0, 240) : '',
+        hasBetaVideo: Boolean(route.betaVideoUrl),
+        isPublic: Boolean(route.isPublic),
+      })),
+    })),
+    publicGymStats: publicGymStats.slice(0, 8).map((gym) => ({
+      name: gym.name,
+      area: gym.area,
+      routeCount: gym.routeCount,
+      userCount: gym.userCount,
+      gradeSummary: gym.gradeSummary,
+    })),
+    publicRoutes: squareRoutes.slice(0, 20).map((route) => ({
+      gymName: route.gym_name,
+      gymArea: route.gym_area,
+      routeName: route.route_name,
+      grade: route.grade,
+      sentAt: route.sent_at || '',
+      notes: route.notes ? route.notes.slice(0, 180) : '',
+    })),
+  });
 
+  const getFallbackAiRecommendation = (need) => {
     const candidateGyms = gyms.length ? gyms : publicGymStats;
     const routes = gyms.flatMap((gym) =>
       gym.routes.map((route) => ({
@@ -844,9 +873,43 @@ export default function App() {
       .map((route) => `「${route.routeName}」${route.grade} @ ${route.gymName}`)
       .join('、');
 
-    setAiRecommendation(
-      `根据你的描述：“${need}”\n\n推荐先去 ${gymText || '你最近常去的岩馆'}。今天训练可以分三段：热身 20 分钟，选择 2-3 条低一级线路做脚点和重心练习；主训练 45 分钟，挑一条略有挑战的线路反复拆动作；最后 15 分钟做肩背和髋部放松。\n\n可优先参考：${routeText || '公开广场里本月同城用户分享的线路'}。\n\n这里现在是本地规则版建议；接入后端 AI 后，可以把天气、距离、岩馆热度、你的历史完攀和恢复状态一起纳入推荐。`,
-    );
+    return `根据你的描述：“${need}”\n\n推荐先去 ${gymText || '你最近常去的岩馆'}。今天训练可以分三段：热身 20 分钟，选择 2-3 条低一级线路做脚点和重心练习；主训练 45 分钟，挑一条略有挑战的线路反复拆动作；最后 15 分钟做肩背和髋部放松。\n\n可优先参考：${routeText || '公开广场里本月同城用户分享的线路'}。\n\nAI 后端暂时不可用，这是本地备用建议。`;
+  };
+
+  const handleAiRecommendation = async () => {
+    const need = aiNeed.trim();
+    if (!need) {
+      setAiRecommendation('先写下今天的目标，比如“想练脚法，强度不要太大，最好在静安附近”。');
+      return;
+    }
+
+    setIsAiLoading(true);
+    setAiRecommendation('正在生成攀岩建议...');
+
+    try {
+      const response = await fetch('/api/ai-recommendation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          need,
+          context: getAiContext(),
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(result.error || 'AI 服务暂时不可用。');
+      }
+
+      setAiRecommendation(result.recommendation || getFallbackAiRecommendation(need));
+    } catch (error) {
+      console.warn('AI 推荐失败', error);
+      setAiRecommendation(`${error.message}\n\n${getFallbackAiRecommendation(need)}`);
+    } finally {
+      setIsAiLoading(false);
+    }
   };
 
   return (
@@ -1080,9 +1143,9 @@ export default function App() {
                 onChange={(event) => setAiNeed(event.target.value)}
               />
             </label>
-            <button className="ai-btn ai-submit" type="button" onClick={handleAiRecommendation}>
+            <button className="ai-btn ai-submit" type="button" onClick={handleAiRecommendation} disabled={isAiLoading}>
               <Sparkles size={18} />
-              生成推荐和训练计划
+              {isAiLoading ? '正在生成...' : '生成推荐和训练计划'}
             </button>
             {aiRecommendation ? <pre className="ai-result">{aiRecommendation}</pre> : null}
           </section>
