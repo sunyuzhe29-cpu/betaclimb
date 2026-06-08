@@ -1256,7 +1256,7 @@ export default function App() {
 
   const openPublicRouteDiscussion = (routeId) => {
     const route = publicRoutes.find((publicRoute) => publicRoute.id === routeId);
-    setActiveView('gyms');
+    setActiveView('routeDiscussion');
     if (route) {
       setActivePublicGymId(getRouteGymKey(route));
     }
@@ -1266,6 +1266,10 @@ export default function App() {
     setActiveRouteId('');
     setIsEditing(false);
     setIsEditingGym(false);
+  };
+
+  const closePublicRouteDiscussion = () => {
+    setActiveView('gyms');
   };
 
   const updateActiveGym = (updates) => {
@@ -1376,7 +1380,7 @@ export default function App() {
     }
 
     const optimisticComment = {
-      id: `local-${Date.now()}`,
+      id: `local-route-comment-${(localSquareIdRef.current += 1)}`,
       post_id: activeDiscussionRoute.id,
       user_id: user.id,
       user_label: getPublicUserLabel(user, '我'),
@@ -1892,14 +1896,6 @@ export default function App() {
                           <p className="eyebrow">线路详情</p>
                           <h2>{activePublicRouteGroup.representative.route_name}</h2>
                         </div>
-                        <button
-                          className="ghost-btn compact"
-                          type="button"
-                          onClick={() => openPublicRouteDiscussion(activePublicRouteGroup.representative.id)}
-                        >
-                          <MessageCircle size={17} />
-                          进入讨论
-                        </button>
                       </div>
                       <img
                         className="public-route-detail-image"
@@ -1925,38 +1921,6 @@ export default function App() {
                           </article>
                         ))}
                       </div>
-                      {activeDiscussionRoute &&
-                      activePublicRouteGroup.routes.some((route) => route.id === activeDiscussionRoute.id) ? (
-                        <section className="route-discussion-block" aria-label="线路讨论">
-                          <div className="section-title compact-title">
-                            <p className="eyebrow">线路讨论</p>
-                            <h2>{activeDiscussionRoute.route_name}</h2>
-                          </div>
-                          <div className="comment-list">
-                            {publicComments.length ? (
-                              publicComments.map((comment) => (
-                                <div className="comment" key={comment.id}>
-                                  <strong>{getVisibleUserLabel(comment.user_label)}</strong>
-                                  <p>{comment.content}</p>
-                                </div>
-                              ))
-                            ) : (
-                              <p className="empty-copy">还没有讨论，问一个 beta 或训练建议吧。</p>
-                            )}
-                          </div>
-                          <div className="comment-compose">
-                            <textarea
-                              value={commentDraft}
-                              placeholder="写下你的观察或问题..."
-                              onChange={(event) => setCommentDraft(event.target.value)}
-                            />
-                            <button className="primary-btn compact" type="button" onClick={handleSubmitComment}>
-                              <Send size={17} />
-                              发送
-                            </button>
-                          </div>
-                        </section>
-                      ) : null}
                     </section>
                   ) : null}
                 </>
@@ -1968,6 +1932,88 @@ export default function App() {
               )}
             </div>
           </section>
+        </main>
+      ) : null}
+
+      {activeView === 'routeDiscussion' ? (
+        <main className="route-discussion-view">
+          <section className="view-header">
+            <button className="ghost-btn" type="button" onClick={closePublicRouteDiscussion}>
+              <ArrowLeft size={18} />
+              岩馆线路
+            </button>
+            <div>
+              <p className="eyebrow">{activeDiscussionRoute?.gym_name || '线路讨论'}</p>
+              <h1>{activeDiscussionRoute?.route_name || '讨论记录'}</h1>
+            </div>
+          </section>
+
+          {activeDiscussionRoute ? (
+            <section className="route-discussion-layout" aria-label="线路记录讨论页">
+              <div className="route-discussion-media-panel">
+                <div className="section-title">
+                  <p className="eyebrow">{activeDiscussionRoute.grade || '未定级'}</p>
+                  <h2>{activeDiscussionRoute.route_name}</h2>
+                </div>
+                <img
+                  className="public-route-detail-image"
+                  src={activeDiscussionRoute.route_image_url}
+                  alt={`${activeDiscussionRoute.route_name} 线路照片`}
+                />
+                <article className="beta-video-item">
+                  <div>
+                    <strong>{getVisibleUserLabel(activeDiscussionRoute.user_label)}</strong>
+                    <small>
+                      {activeDiscussionRoute.grade} · {activeDiscussionRoute.sent_at || '未记录完攀日期'}
+                    </small>
+                  </div>
+                  {activeDiscussionRoute.beta_video_url ? (
+                    <video src={activeDiscussionRoute.beta_video_url} controls />
+                  ) : (
+                    <p className="empty-copy">这个用户还没有公开视频。</p>
+                  )}
+                  {activeDiscussionRoute.discussion_prompt || activeDiscussionRoute.notes ? (
+                    <p className="post-copy">{activeDiscussionRoute.discussion_prompt || activeDiscussionRoute.notes}</p>
+                  ) : null}
+                </article>
+              </div>
+
+              <aside className="discussion-panel route-discussion-comments">
+                <div className="section-title">
+                  <p className="eyebrow">讨论</p>
+                  <h2>{activeDiscussionRoute.route_name}</h2>
+                </div>
+                <div className="comment-list">
+                  {publicComments.length ? (
+                    publicComments.map((comment) => (
+                      <div className="comment" key={comment.id}>
+                        <strong>{getVisibleUserLabel(comment.user_label)}</strong>
+                        <p>{comment.content}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="empty-copy">还没有讨论，问一个 beta 或训练建议吧。</p>
+                  )}
+                </div>
+                <div className="comment-compose">
+                  <textarea
+                    value={commentDraft}
+                    placeholder="写下你的观察或问题..."
+                    onChange={(event) => setCommentDraft(event.target.value)}
+                  />
+                  <button className="primary-btn compact" type="button" onClick={handleSubmitComment}>
+                    <Send size={17} />
+                    发送
+                  </button>
+                </div>
+              </aside>
+            </section>
+          ) : (
+            <div className="empty-state">
+              <strong>没有找到这条记录</strong>
+              <span>回到岩馆页重新选择一条公开线路记录。</span>
+            </div>
+          )}
         </main>
       ) : null}
 

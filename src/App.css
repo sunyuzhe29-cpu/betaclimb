@@ -137,6 +137,7 @@ button {
 .home-view,
 .routes-view,
 .route-detail-view,
+.route-discussion-view,
 .public-view {
   width: min(1180px, 100%);
   margin: 0 auto;
@@ -1590,16 +1591,31 @@ h2 {
   gap: 14px;
 }
 
+.route-discussion-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(360px, 0.82fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.route-discussion-media-panel {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #ddd7ca;
+  border-radius: 8px;
+  background: #fffaf0;
+  box-shadow: 0 14px 36px rgba(31, 41, 55, 0.06);
+}
+
+.route-discussion-comments {
+  min-width: 0;
+}
+
 .square-route-detail {
   display: grid;
   gap: 12px;
-}
-
-.route-discussion-block {
-  display: grid;
-  gap: 12px;
-  padding-top: 16px;
-  border-top: 1px solid #ddd7ca;
 }
 
 .compact-title {
@@ -1712,6 +1728,10 @@ h2 {
     grid-template-columns: 1fr;
   }
 
+  .route-discussion-layout {
+    grid-template-columns: 1fr;
+  }
+
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
@@ -1748,6 +1768,7 @@ h2 {
   .home-view,
   .routes-view,
   .route-detail-view,
+  .route-discussion-view,
   .public-view {
     padding-inline: 14px;
   }
