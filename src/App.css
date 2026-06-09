@@ -583,13 +583,25 @@ h2 {
   border-radius: 8px;
   color: #374151;
   background: #f7f4ee;
-  cursor: pointer;
   text-align: left;
 }
 
 .plan-manager-item.active {
   border-color: #1f2937;
   background: #f4efe6;
+}
+
+.plan-manager-edit {
+  min-width: 0;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
 }
 
 .plan-manager-item b,
@@ -610,6 +622,31 @@ h2 {
   color: #6b7280;
   font-size: 12px;
   font-weight: 850;
+}
+
+.plan-delete-btn,
+.plan-delete-text-btn {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #991b1b;
+  background: #fee2e2;
+  cursor: pointer;
+  font-weight: 950;
+}
+
+.plan-delete-btn {
+  width: 36px;
+  padding: 0;
+}
+
+.plan-delete-text-btn {
+  padding: 0 11px;
+  font-size: 13px;
 }
 
 .calendar-header {
@@ -2053,6 +2090,14 @@ h2 {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.plan-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .plan-settings-grid {

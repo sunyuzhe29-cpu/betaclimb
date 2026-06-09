@@ -2252,6 +2252,21 @@ export default function App() {
     setActiveView('personal');
   };
 
+  const deleteTrainingPlan = (planId) => {
+    const plan = trainingPlans.find((currentPlan) => currentPlan.id === planId);
+    if (!plan) return;
+    if (!window.confirm(`确定删除「${plan.title}」吗？这会同时移除日历里的计划日和打卡记录。`)) return;
+
+    setTrainingPlans((currentPlans) => {
+      const nextPlans = currentPlans.filter((currentPlan) => currentPlan.id !== planId);
+      writeStoredTrainingPlans(nextPlans);
+      return nextPlans;
+    });
+    if (activeTrainingPlanId === planId) {
+      setActiveTrainingPlanId('');
+    }
+  };
+
   const toggleTrainingPlanCheckIn = (planId, date) => {
     setTrainingPlans((currentPlans) => {
       const nextPlans = currentPlans.map((plan) => {
@@ -3270,24 +3285,31 @@ export default function App() {
                 {trainingPlans.length ? (
                   <div className="plan-manager-list">
                     {trainingPlans.map((plan) => (
-                      <button
+                      <div
                         className={`plan-manager-item ${activeTrainingPlanId === plan.id ? 'active' : ''}`}
                         key={plan.id}
-                        type="button"
-                        onClick={() => {
-                          setActiveTrainingPlanId(plan.id);
-                          setCalendarMonth(String(plan.startDate || formatLocalDate(new Date())).slice(0, 7));
-                          setSelectedCalendarDate(plan.startDate || formatLocalDate(new Date()));
-                        }}
                       >
-                        <span>
-                          <b>{plan.title}</b>
-                          <small>
-                            {plan.durationWeeks} 周 · 每周 {plan.weeklyFrequency} 次
-                          </small>
-                        </span>
-                        <Pencil size={16} />
-                      </button>
+                        <button
+                          className="plan-manager-edit"
+                          type="button"
+                          onClick={() => {
+                            setActiveTrainingPlanId(plan.id);
+                            setCalendarMonth(String(plan.startDate || formatLocalDate(new Date())).slice(0, 7));
+                            setSelectedCalendarDate(plan.startDate || formatLocalDate(new Date()));
+                          }}
+                        >
+                          <span>
+                            <b>{plan.title}</b>
+                            <small>
+                              {plan.durationWeeks} 周 · 每周 {plan.weeklyFrequency} 次
+                            </small>
+                          </span>
+                          <Pencil size={16} />
+                        </button>
+                        <button className="plan-delete-btn" type="button" onClick={() => deleteTrainingPlan(plan.id)} aria-label={`删除${plan.title}`}>
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 ) : (
@@ -3413,10 +3435,16 @@ export default function App() {
                       <p className="eyebrow">编辑计划</p>
                       <h2>日历会自动同步</h2>
                     </div>
-                    <button className="ghost-btn compact" type="button" onClick={() => setActiveTrainingPlanId('')}>
-                      <EyeOff size={16} />
-                      收起
-                    </button>
+                    <div className="plan-editor-actions">
+                      <button className="plan-delete-text-btn" type="button" onClick={() => deleteTrainingPlan(activeTrainingPlan.id)}>
+                        <Trash2 size={16} />
+                        删除计划
+                      </button>
+                      <button className="ghost-btn compact" type="button" onClick={() => setActiveTrainingPlanId('')}>
+                        <EyeOff size={16} />
+                        收起
+                      </button>
+                    </div>
                   </div>
 
                   <div className="plan-settings-grid">
