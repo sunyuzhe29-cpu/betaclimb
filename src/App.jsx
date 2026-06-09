@@ -2555,10 +2555,6 @@ export default function App() {
                       <Search size={17} />
                       详情
                     </button>
-                    <button className="ai-btn compact" type="button" onClick={() => handleProductAiRecommendation(product)} disabled={isProductAiLoading}>
-                      <Sparkles size={17} />
-                      问 AI
-                    </button>
                   </div>
                 </article>
               ))}

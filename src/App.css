@@ -2133,7 +2133,7 @@ h2 {
 }
 
 .product-actions {
-  justify-content: space-between;
+  justify-content: flex-start;
 }
 
 .product-detail-panel {
