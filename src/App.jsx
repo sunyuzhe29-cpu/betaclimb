@@ -68,6 +68,7 @@ const BETA_VIDEO_BUCKET = 'beta-videos';
 const MAX_LOCAL_VIDEO_BYTES = 6 * 1024 * 1024;
 const LOCAL_SQUARE_POSTS_KEY = 'betaclimb:square-posts';
 const LOCAL_AI_HISTORY_KEY = 'betaclimb:ai-history';
+const LOCAL_TRAINING_PLANS_KEY = 'betaclimb:training-plans';
 const MAX_AI_HISTORY_ITEMS = 24;
 
 const fileToDataUrl = (file) =>
@@ -130,6 +131,26 @@ const writeStoredAiHistory = (entries) => {
     window.localStorage.setItem(LOCAL_AI_HISTORY_KEY, JSON.stringify(entries));
   } catch (error) {
     console.warn('AI 历史本地缓存失败。', error);
+  }
+};
+
+const readStoredTrainingPlans = () => {
+  try {
+    const storedValue = window.localStorage.getItem(LOCAL_TRAINING_PLANS_KEY);
+    if (!storedValue) return [];
+
+    const parsedValue = JSON.parse(storedValue);
+    return Array.isArray(parsedValue) ? parsedValue : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredTrainingPlans = (plans) => {
+  try {
+    window.localStorage.setItem(LOCAL_TRAINING_PLANS_KEY, JSON.stringify(plans));
+  } catch (error) {
+    console.warn('长期训练计划本地缓存失败。', error);
   }
 };
 
@@ -435,13 +456,122 @@ const buildPublicGymStats = (gymDirectory = [], routes, monthKey, routeImageFing
     .sort((gymA, gymB) => gymB.routeCount - gymA.routeCount || gymA.name.localeCompare(gymB.name, 'zh-CN'));
 };
 
-const buildCalendarDays = (monthKey, entries) => {
+const formatLocalDate = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const addDays = (date, days) => {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+};
+
+const parseLocalDate = (dateKey) => {
+  const [year, month, day] = String(dateKey || '').split('-').map(Number);
+  if (!year || !month || !day) return new Date();
+  return new Date(year, month - 1, day);
+};
+
+const TRAINING_WEEKDAYS = [
+  { value: 0, label: '周日' },
+  { value: 1, label: '周一' },
+  { value: 2, label: '周二' },
+  { value: 3, label: '周三' },
+  { value: 4, label: '周四' },
+  { value: 5, label: '周五' },
+  { value: 6, label: '周六' },
+];
+
+const DEFAULT_TRAINING_SESSIONS = [
+  { weekday: 2, focus: '技术和脚法', intensity: 6, durationMinutes: 90 },
+  { weekday: 4, focus: '力量耐力', intensity: 7, durationMinutes: 100 },
+  { weekday: 6, focus: '项目尝试', intensity: 8, durationMinutes: 120 },
+];
+
+const clampNumber = (value, min, max, fallback) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+};
+
+const inferLongTermPlanDraft = (need, context = {}) => {
+  const normalizedNeed = String(need || '');
+  const frequencyMatch = normalizedNeed.match(/每周(?:去|爬)?\s*(\d+)\s*次|一周(?:去|爬)?\s*(\d+)\s*次|周(?:去|爬)?\s*(\d+)\s*次/);
+  const weeksMatch = normalizedNeed.match(/(\d+)\s*(周|星期|week)/i);
+  const minutesMatch = normalizedNeed.match(/(\d+)\s*(分钟|分|min)/i);
+  const intensityMatch = normalizedNeed.match(/强度\s*(\d+)|(\d+)\s*\/\s*10/);
+  const routeCount = Array.isArray(context.recentRoutes) ? context.recentRoutes.length : 0;
+  const weeklyFrequency = clampNumber(
+    frequencyMatch?.[1] || frequencyMatch?.[2] || frequencyMatch?.[3] || (routeCount >= 6 ? 3 : 2),
+    1,
+    5,
+    2,
+  );
+  const durationWeeks = clampNumber(weeksMatch?.[1] || 6, 2, 16, 6);
+  const durationMinutes = clampNumber(minutesMatch?.[1] || 90, 45, 150, 90);
+  const intensity = clampNumber(intensityMatch?.[1] || intensityMatch?.[2] || 7, 3, 9, 7);
+  const startDate = formatLocalDate(new Date());
+
+  return {
+    id: `draft-${Date.now()}`,
+    title: normalizedNeed ? `长期计划：${normalizedNeed.slice(0, 18)}` : '长期攀岩训练计划',
+    startDate,
+    durationWeeks,
+    weeklyFrequency,
+    reminder: '训练当天 10:00 提醒打卡',
+    status: 'draft',
+    sessions: DEFAULT_TRAINING_SESSIONS.slice(0, weeklyFrequency).map((session, index) => ({
+      ...session,
+      durationMinutes,
+      intensity: clampNumber(intensity + index - 1, 3, 9, intensity),
+    })),
+  };
+};
+
+const expandTrainingPlanEntries = (plans) =>
+  plans
+    .filter((plan) => plan.status === 'accepted')
+    .flatMap((plan) => {
+      const startDate = parseLocalDate(plan.startDate);
+      const endDate = addDays(startDate, clampNumber(plan.durationWeeks, 1, 52, 6) * 7 - 1);
+      const entries = [];
+
+      for (let date = new Date(startDate); date <= endDate; date = addDays(date, 1)) {
+        const dateKey = formatLocalDate(date);
+        (plan.sessions || [])
+          .filter((session) => Number(session.weekday) === date.getDay())
+          .forEach((session, index) => {
+            entries.push({
+              id: `${plan.id}:${dateKey}:${index}`,
+              planId: plan.id,
+              date: dateKey,
+              title: plan.title,
+              focus: session.focus || '攀岩训练',
+              intensity: session.intensity,
+              durationMinutes: session.durationMinutes,
+              reminder: plan.reminder,
+              checked: Boolean(plan.checkIns?.[dateKey]),
+            });
+          });
+      }
+
+      return entries;
+    });
+
+const buildCalendarDays = (monthKey, entries, plannedEntries = []) => {
   const [year, month] = monthKey.split('-').map(Number);
   const firstDay = new Date(year, month - 1, 1);
   const daysInMonth = new Date(year, month, 0).getDate();
   const leadingBlanks = firstDay.getDay();
   const visitsByDate = entries.reduce((acc, entry) => {
     acc[entry.sentAt] = [...(acc[entry.sentAt] || []), entry];
+    return acc;
+  }, {});
+  const plansByDate = plannedEntries.reduce((acc, entry) => {
+    acc[entry.date] = [...(acc[entry.date] || []), entry];
     return acc;
   }, {});
 
@@ -454,6 +584,7 @@ const buildCalendarDays = (monthKey, entries) => {
         date,
         day,
         visits: visitsByDate[date] || [],
+        plans: plansByDate[date] || [],
       };
     }),
   ];
@@ -724,10 +855,10 @@ const AI_ASSISTANT_MODES = [
   {
     id: 'training',
     title: '训练计划',
-    description: '把目标、疲劳和记录整理成一次完整训练',
+    description: '生成可调整的长期安排和单次训练细节',
     icon: ClipboardList,
-    placeholder: '例如：今天想练动态，但肩膀有点累，希望强度控制在 7/10，训练 90 分钟。',
-    action: '生成训练计划',
+    placeholder: '例如：未来 6 周想一周去 3 次岩馆，提高 V4-V5 完攀率，每次 90 分钟，强度 6-8/10。',
+    action: '生成长期计划',
     loading: '正在生成计划...',
   },
 ];
@@ -884,6 +1015,9 @@ export default function App() {
   const [activeAiHistoryId, setActiveAiHistoryId] = useState('');
   const [aiRecommendation, setAiRecommendation] = useState(() => readStoredAiHistory()[0]?.recommendation || '');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [trainingPlans, setTrainingPlans] = useState(() => readStoredTrainingPlans());
+  const [trainingPlanDraft, setTrainingPlanDraft] = useState(null);
+  const [activeTrainingPlanId, setActiveTrainingPlanId] = useState('');
   const [activeProductId, setActiveProductId] = useState(PRODUCT_CATALOG[0]?.id || '');
   const [productAiAnswer, setProductAiAnswer] = useState('');
   const [isProductAiLoading, setIsProductAiLoading] = useState(false);
@@ -1334,6 +1468,8 @@ export default function App() {
   );
   const favoriteRoutes = useMemo(() => getFavoriteRouteEntries(gyms), [gyms]);
   const sentEntries = useMemo(() => getSentEntries(gyms), [gyms]);
+  const plannedTrainingEntries = useMemo(() => expandTrainingPlanEntries(trainingPlans), [trainingPlans]);
+  const activeTrainingPlan = trainingPlans.find((plan) => plan.id === activeTrainingPlanId) || null;
   const gradeSummary = useMemo(() => {
     const counts = sentEntries.reduce((acc, entry) => {
       acc[entry.grade] = (acc[entry.grade] || 0) + 1;
@@ -1342,8 +1478,12 @@ export default function App() {
 
     return Object.entries(counts).sort(([gradeA], [gradeB]) => gradeA.localeCompare(gradeB, 'zh-CN'));
   }, [sentEntries]);
-  const calendarDays = useMemo(() => buildCalendarDays(calendarMonth, sentEntries), [calendarMonth, sentEntries]);
+  const calendarDays = useMemo(
+    () => buildCalendarDays(calendarMonth, sentEntries, plannedTrainingEntries),
+    [calendarMonth, plannedTrainingEntries, sentEntries],
+  );
   const entriesForSelectedDate = sentEntries.filter((entry) => entry.sentAt === selectedCalendarDate);
+  const plannedEntriesForSelectedDate = plannedTrainingEntries.filter((entry) => entry.date === selectedCalendarDate);
   const monthlyPersonalStats = useMemo(
     () => buildMonthlyPersonalStats(gyms, calendarMonth),
     [calendarMonth, gyms],
@@ -1944,7 +2084,7 @@ export default function App() {
       .join('、');
 
     if (mode === 'training') {
-      return `根据你的描述：“${need}”\n\n推荐先去 ${gymText || '你最近常去的岩馆'}。今天训练可以分三段：热身 20 分钟，选择 2-3 条低一级线路做脚点和重心练习；主训练 45 分钟，挑一条略有挑战的线路反复拆动作；最后 15 分钟做肩背和髋部放松。\n\n可优先参考：${routeText || '公开广场里本月同城用户分享的线路'}。\n\nAI 后端暂时不可用，这是本地备用训练计划。`;
+      return `根据你的描述：“${need}”\n\n建议先做 6 周长期计划：每周 2-3 次岩馆，至少间隔 1 天恢复。每周安排 1 次技术低强度、1 次力量耐力中高强度、1 次项目尝试；如果疲劳或疼痛明显，就把项目日改成技术日。\n\n单次训练可以分三段：热身 20 分钟，选择 2-3 条低一级线路做脚点和重心练习；主训练 45-70 分钟，挑 1-2 条略有挑战的线路拆动作；最后 15 分钟做肩背和髋部放松。\n\n可优先参考：${routeText || '公开广场里本月同城用户分享的线路'}。计划草案已生成，你可以调整频率、强度和训练日后接受。\n\nAI 后端暂时不可用，这是本地备用训练计划。`;
     }
 
     const productIntentPattern = /鞋|攀岩鞋|镁粉|粉|粉袋|装备|购买|买|预算|脚型|手汗|chalk|shoe|bag/i;
@@ -1974,6 +2114,163 @@ export default function App() {
     setActiveAiHistoryId(entry.id);
   };
 
+  const updateTrainingPlanDraft = (updates) => {
+    setTrainingPlanDraft((currentDraft) => (currentDraft ? { ...currentDraft, ...updates } : currentDraft));
+  };
+
+  const updateTrainingPlanSession = (index, updates) => {
+    setTrainingPlanDraft((currentDraft) => {
+      if (!currentDraft) return currentDraft;
+
+      return {
+        ...currentDraft,
+        sessions: currentDraft.sessions.map((session, sessionIndex) =>
+          sessionIndex === index ? { ...session, ...updates } : session,
+        ),
+      };
+    });
+  };
+
+  const syncDraftSessionCount = (nextFrequency) => {
+    const weeklyFrequency = clampNumber(nextFrequency, 1, 5, 2);
+    setTrainingPlanDraft((currentDraft) => {
+      if (!currentDraft) return currentDraft;
+
+      const currentSessions = currentDraft.sessions || [];
+      const sessions = Array.from({ length: weeklyFrequency }, (_, index) => ({
+        ...(DEFAULT_TRAINING_SESSIONS[index] || DEFAULT_TRAINING_SESSIONS[DEFAULT_TRAINING_SESSIONS.length - 1]),
+        ...(currentSessions[index] || {}),
+      }));
+
+      return {
+        ...currentDraft,
+        weeklyFrequency,
+        sessions,
+      };
+    });
+  };
+
+  const acceptTrainingPlanDraft = () => {
+    if (!trainingPlanDraft) return;
+
+    const acceptedPlan = {
+      ...trainingPlanDraft,
+      id: `plan-${Date.now()}`,
+      status: 'accepted',
+      acceptedAt: new Date().toISOString(),
+      checkIns: {},
+    };
+
+    setTrainingPlans((currentPlans) => {
+      const nextPlans = [acceptedPlan, ...currentPlans];
+      writeStoredTrainingPlans(nextPlans);
+      return nextPlans;
+    });
+    setActiveTrainingPlanId(acceptedPlan.id);
+    setTrainingPlanDraft(null);
+    setCalendarMonth(acceptedPlan.startDate.slice(0, 7));
+    setSelectedCalendarDate(acceptedPlan.startDate);
+    setActiveView('personal');
+  };
+
+  const updateTrainingPlan = (planId, updates) => {
+    setTrainingPlans((currentPlans) => {
+      const nextPlans = currentPlans.map((plan) =>
+        plan.id === planId
+          ? {
+              ...plan,
+              ...updates,
+              updatedAt: new Date().toISOString(),
+            }
+          : plan,
+      );
+      writeStoredTrainingPlans(nextPlans);
+      return nextPlans;
+    });
+  };
+
+  const updateAcceptedTrainingPlanSession = (planId, index, updates) => {
+    setTrainingPlans((currentPlans) => {
+      const nextPlans = currentPlans.map((plan) => {
+        if (plan.id !== planId) return plan;
+
+        return {
+          ...plan,
+          sessions: (plan.sessions || []).map((session, sessionIndex) =>
+            sessionIndex === index ? { ...session, ...updates } : session,
+          ),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      writeStoredTrainingPlans(nextPlans);
+      return nextPlans;
+    });
+  };
+
+  const syncAcceptedPlanSessionCount = (planId, nextFrequency) => {
+    const weeklyFrequency = clampNumber(nextFrequency, 1, 5, 2);
+    setTrainingPlans((currentPlans) => {
+      const nextPlans = currentPlans.map((plan) => {
+        if (plan.id !== planId) return plan;
+
+        const currentSessions = plan.sessions || [];
+        const sessions = Array.from({ length: weeklyFrequency }, (_, index) => ({
+          ...(DEFAULT_TRAINING_SESSIONS[index] || DEFAULT_TRAINING_SESSIONS[DEFAULT_TRAINING_SESSIONS.length - 1]),
+          ...(currentSessions[index] || {}),
+        }));
+
+        return {
+          ...plan,
+          weeklyFrequency,
+          sessions,
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      writeStoredTrainingPlans(nextPlans);
+      return nextPlans;
+    });
+  };
+
+  const createManualTrainingPlan = () => {
+    const manualPlan = {
+      ...inferLongTermPlanDraft('我的长期攀岩计划', getAiContext()),
+      id: `plan-${Date.now()}`,
+      title: '我的长期攀岩计划',
+      status: 'accepted',
+      acceptedAt: new Date().toISOString(),
+      checkIns: {},
+    };
+
+    setTrainingPlans((currentPlans) => {
+      const nextPlans = [manualPlan, ...currentPlans];
+      writeStoredTrainingPlans(nextPlans);
+      return nextPlans;
+    });
+    setActiveTrainingPlanId(manualPlan.id);
+    setCalendarMonth(manualPlan.startDate.slice(0, 7));
+    setSelectedCalendarDate(manualPlan.startDate);
+    setActiveView('personal');
+  };
+
+  const toggleTrainingPlanCheckIn = (planId, date) => {
+    setTrainingPlans((currentPlans) => {
+      const nextPlans = currentPlans.map((plan) => {
+        if (plan.id !== planId) return plan;
+
+        const checkIns = { ...(plan.checkIns || {}) };
+        if (checkIns[date]) {
+          delete checkIns[date];
+        } else {
+          checkIns[date] = new Date().toISOString();
+        }
+
+        return { ...plan, checkIns };
+      });
+      writeStoredTrainingPlans(nextPlans);
+      return nextPlans;
+    });
+  };
+
   const handleAiRecommendation = async () => {
     const need = aiNeed.trim();
     const selectedMode = AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0];
@@ -1988,6 +2285,8 @@ export default function App() {
 
     setIsAiLoading(true);
     setAiRecommendation(selectedMode.loading);
+    setTrainingPlanDraft(null);
+    const aiContext = getAiContext();
 
     try {
       const response = await fetch('/api/ai-recommendation', {
@@ -1998,7 +2297,7 @@ export default function App() {
         body: JSON.stringify({
           need,
           mode: aiMode,
-          context: getAiContext(),
+          context: aiContext,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -2014,6 +2313,9 @@ export default function App() {
         need,
         recommendation,
       });
+      if (aiMode === 'training') {
+        setTrainingPlanDraft(inferLongTermPlanDraft(need, aiContext));
+      }
     } catch (error) {
       console.warn('AI 推荐失败', error);
       const recommendation = `${error.message}\n\n${getFallbackAiRecommendation(need, aiMode)}`;
@@ -2023,6 +2325,9 @@ export default function App() {
         need,
         recommendation,
       });
+      if (aiMode === 'training') {
+        setTrainingPlanDraft(inferLongTermPlanDraft(need, aiContext));
+      }
     } finally {
       setIsAiLoading(false);
     }
@@ -2700,6 +3005,117 @@ export default function App() {
               </div>
             </div>
 
+            {trainingPlanDraft ? (
+              <section className="training-plan-panel" aria-label="长期训练计划草案">
+                <div className="training-plan-heading">
+                  <div>
+                    <p className="eyebrow">计划草案</p>
+                    <h2>调整后接受到日历</h2>
+                  </div>
+                  <button className="primary-btn compact" type="button" onClick={acceptTrainingPlanDraft}>
+                    <Save size={17} />
+                    接受计划
+                  </button>
+                </div>
+
+                <div className="plan-settings-grid">
+                  <label className="field">
+                    <span>计划名称</span>
+                    <input
+                      value={trainingPlanDraft.title}
+                      onChange={(event) => updateTrainingPlanDraft({ title: event.target.value })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>开始日期</span>
+                    <input
+                      type="date"
+                      value={trainingPlanDraft.startDate}
+                      onChange={(event) => updateTrainingPlanDraft({ startDate: event.target.value })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>持续周数</span>
+                    <input
+                      type="number"
+                      min="2"
+                      max="16"
+                      value={trainingPlanDraft.durationWeeks}
+                      onChange={(event) => updateTrainingPlanDraft({ durationWeeks: clampNumber(event.target.value, 2, 16, 6) })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>每周次数</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="5"
+                      value={trainingPlanDraft.weeklyFrequency}
+                      onChange={(event) => syncDraftSessionCount(event.target.value)}
+                    />
+                  </label>
+                </div>
+
+                <div className="training-session-list">
+                  {trainingPlanDraft.sessions.map((session, index) => (
+                    <div className="training-session-row" key={`${session.weekday}-${index}`}>
+                      <strong>第 {index + 1} 次</strong>
+                      <select
+                        value={session.weekday}
+                        onChange={(event) => updateTrainingPlanSession(index, { weekday: Number(event.target.value) })}
+                        aria-label={`第 ${index + 1} 次训练日`}
+                      >
+                        {TRAINING_WEEKDAYS.map((weekday) => (
+                          <option key={weekday.value} value={weekday.value}>
+                            {weekday.label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        value={session.focus}
+                        onChange={(event) => updateTrainingPlanSession(index, { focus: event.target.value })}
+                        aria-label={`第 ${index + 1} 次训练重点`}
+                      />
+                      <label>
+                        <span>强度</span>
+                        <input
+                          type="number"
+                          min="3"
+                          max="9"
+                          value={session.intensity}
+                          onChange={(event) => updateTrainingPlanSession(index, { intensity: clampNumber(event.target.value, 3, 9, 7) })}
+                        />
+                      </label>
+                      <label>
+                        <span>分钟</span>
+                        <input
+                          type="number"
+                          min="45"
+                          max="150"
+                          step="5"
+                          value={session.durationMinutes}
+                          onChange={(event) =>
+                            updateTrainingPlanSession(index, { durationMinutes: clampNumber(event.target.value, 45, 150, 90) })
+                          }
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+
+                <label className="field">
+                  <span>
+                    <CalendarClock size={16} />
+                    打卡提示
+                  </span>
+                  <input
+                    value={trainingPlanDraft.reminder}
+                    onChange={(event) => updateTrainingPlanDraft({ reminder: event.target.value })}
+                  />
+                </label>
+              </section>
+            ) : null}
+
             <section className="ai-history-panel" aria-label="AI 历史记录">
               <div className="ai-history-heading">
                 <div>
@@ -2810,6 +3226,10 @@ export default function App() {
               <h1>攀岩日历</h1>
             </div>
             <div className="header-actions">
+              <button className="ghost-btn compact" type="button" onClick={createManualTrainingPlan}>
+                <ClipboardList size={18} />
+                新建计划
+              </button>
               <button className="ghost-btn compact" type="button" onClick={() => setIsFavoritesOpen(true)}>
                 <Star size={18} />
                 喜爱列表
@@ -2841,6 +3261,39 @@ export default function App() {
                   <p className="empty-copy">还没有带过线日期的线路。</p>
                 )}
               </div>
+
+              <section className="plan-manager-panel" aria-label="长期训练计划">
+                <div className="section-title">
+                  <p className="eyebrow">训练计划</p>
+                  <h2>自主调整安排</h2>
+                </div>
+                {trainingPlans.length ? (
+                  <div className="plan-manager-list">
+                    {trainingPlans.map((plan) => (
+                      <button
+                        className={`plan-manager-item ${activeTrainingPlanId === plan.id ? 'active' : ''}`}
+                        key={plan.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveTrainingPlanId(plan.id);
+                          setCalendarMonth(String(plan.startDate || formatLocalDate(new Date())).slice(0, 7));
+                          setSelectedCalendarDate(plan.startDate || formatLocalDate(new Date()));
+                        }}
+                      >
+                        <span>
+                          <b>{plan.title}</b>
+                          <small>
+                            {plan.durationWeeks} 周 · 每周 {plan.weeklyFrequency} 次
+                          </small>
+                        </span>
+                        <Pencil size={16} />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-copy">可以让 AI 起草，也可以点“新建计划”自己安排。</p>
+                )}
+              </section>
 
               <section className="gym-list" aria-label="用户爬过的岩馆">
                 {gyms.length ? (
@@ -2888,13 +3341,17 @@ export default function App() {
                 {calendarDays.map((day, index) =>
                   day ? (
                     <button
-                      className={`calendar-day ${day.visits.length ? 'has-visits' : ''} ${day.date === selectedCalendarDate ? 'selected' : ''}`}
+                      className={`calendar-day ${day.visits.length ? 'has-visits' : ''} ${day.plans.length ? 'has-plans' : ''} ${
+                        day.plans.some((plan) => plan.checked) ? 'has-checkins' : ''
+                      } ${day.date === selectedCalendarDate ? 'selected' : ''}`}
                       key={day.date}
                       type="button"
                       onClick={() => setSelectedCalendarDate(day.date)}
                     >
                       <span>{day.day}</span>
-                      {day.visits.length ? <small>{day.visits.length}</small> : null}
+                      {day.visits.length || day.plans.length ? (
+                        <small>{day.visits.length + day.plans.length}</small>
+                      ) : null}
                     </button>
                   ) : (
                     <span className="calendar-blank" key={`blank-${index}`} />
@@ -2904,6 +3361,32 @@ export default function App() {
 
               <div className="day-detail">
                 <strong>{selectedCalendarDate || '选择日期'}</strong>
+                {plannedEntriesForSelectedDate.length ? (
+                  <div className="planned-session-list">
+                    {plannedEntriesForSelectedDate.map((entry) => (
+                      <div className="planned-session" key={entry.id}>
+                        <span>
+                          <b>{entry.focus}</b>
+                          <small>
+                            {entry.durationMinutes} 分钟 · 强度 {entry.intensity}/10
+                          </small>
+                          <small>{entry.reminder}</small>
+                        </span>
+                        <button
+                          className={`checkin-btn ${entry.checked ? 'checked' : ''}`}
+                          type="button"
+                          onClick={() => toggleTrainingPlanCheckIn(entry.planId, entry.date)}
+                        >
+                          <CheckCircle2 size={16} />
+                          {entry.checked ? '已打卡' : '打卡'}
+                        </button>
+                        <button className="ghost-btn icon-only" type="button" onClick={() => setActiveTrainingPlanId(entry.planId)} aria-label="编辑计划">
+                          <Pencil size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {entriesForSelectedDate.length ? (
                   <div className="day-route-list">
                     {entriesForSelectedDate.map((entry) => (
@@ -2917,9 +3400,136 @@ export default function App() {
                     ))}
                   </div>
                 ) : (
-                  <p className="empty-copy">这天还没有记录过线。</p>
+                  <p className="empty-copy">
+                    {plannedEntriesForSelectedDate.length ? '这天还没有记录过线。' : '这天还没有计划或过线记录。'}
+                  </p>
                 )}
               </div>
+
+              {activeTrainingPlan ? (
+                <section className="training-plan-panel calendar-plan-editor" aria-label="编辑长期训练计划">
+                  <div className="training-plan-heading">
+                    <div>
+                      <p className="eyebrow">编辑计划</p>
+                      <h2>日历会自动同步</h2>
+                    </div>
+                    <button className="ghost-btn compact" type="button" onClick={() => setActiveTrainingPlanId('')}>
+                      <EyeOff size={16} />
+                      收起
+                    </button>
+                  </div>
+
+                  <div className="plan-settings-grid">
+                    <label className="field">
+                      <span>计划名称</span>
+                      <input
+                        value={activeTrainingPlan.title}
+                        onChange={(event) => updateTrainingPlan(activeTrainingPlan.id, { title: event.target.value })}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>开始日期</span>
+                      <input
+                        type="date"
+                        value={activeTrainingPlan.startDate}
+                        onChange={(event) => {
+                          updateTrainingPlan(activeTrainingPlan.id, { startDate: event.target.value });
+                          setCalendarMonth(event.target.value.slice(0, 7));
+                          setSelectedCalendarDate(event.target.value);
+                        }}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>持续周数</span>
+                      <input
+                        type="number"
+                        min="2"
+                        max="16"
+                        value={activeTrainingPlan.durationWeeks}
+                        onChange={(event) =>
+                          updateTrainingPlan(activeTrainingPlan.id, { durationWeeks: clampNumber(event.target.value, 2, 16, 6) })
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>每周次数</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="5"
+                        value={activeTrainingPlan.weeklyFrequency}
+                        onChange={(event) => syncAcceptedPlanSessionCount(activeTrainingPlan.id, event.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="training-session-list">
+                    {(activeTrainingPlan.sessions || []).map((session, index) => (
+                      <div className="training-session-row" key={`${activeTrainingPlan.id}-${index}`}>
+                        <strong>第 {index + 1} 次</strong>
+                        <select
+                          value={session.weekday}
+                          onChange={(event) =>
+                            updateAcceptedTrainingPlanSession(activeTrainingPlan.id, index, { weekday: Number(event.target.value) })
+                          }
+                          aria-label={`第 ${index + 1} 次训练日`}
+                        >
+                          {TRAINING_WEEKDAYS.map((weekday) => (
+                            <option key={weekday.value} value={weekday.value}>
+                              {weekday.label}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          value={session.focus}
+                          onChange={(event) => updateAcceptedTrainingPlanSession(activeTrainingPlan.id, index, { focus: event.target.value })}
+                          aria-label={`第 ${index + 1} 次训练重点`}
+                        />
+                        <label>
+                          <span>强度</span>
+                          <input
+                            type="number"
+                            min="3"
+                            max="9"
+                            value={session.intensity}
+                            onChange={(event) =>
+                              updateAcceptedTrainingPlanSession(activeTrainingPlan.id, index, {
+                                intensity: clampNumber(event.target.value, 3, 9, 7),
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          <span>分钟</span>
+                          <input
+                            type="number"
+                            min="45"
+                            max="150"
+                            step="5"
+                            value={session.durationMinutes}
+                            onChange={(event) =>
+                              updateAcceptedTrainingPlanSession(activeTrainingPlan.id, index, {
+                                durationMinutes: clampNumber(event.target.value, 45, 150, 90),
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+
+                  <label className="field">
+                    <span>
+                      <CalendarClock size={16} />
+                      打卡提示
+                    </span>
+                    <input
+                      value={activeTrainingPlan.reminder}
+                      onChange={(event) => updateTrainingPlan(activeTrainingPlan.id, { reminder: event.target.value })}
+                    />
+                  </label>
+                </section>
+              ) : null}
 
               <div className="monthly-stats" aria-label={`${formatMonthLabel(calendarMonth)} 月度统计`}>
                 <div className="monthly-stat-header">
