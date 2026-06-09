@@ -1752,17 +1752,6 @@ export default function App() {
     }
   };
 
-  const handleAiAnalysis = () => {
-    if (!activeRoute?.betaVideoUrl) {
-      setAiAnalysis('先上传自己的 beta 视频，再发起分析。');
-      return;
-    }
-
-    setAiAnalysis(
-      'AI 视频分析入口已预留：后续接入视频理解模型后，这里可以输出动作节奏、重心偏移、脚法和下一次练习重点。',
-    );
-  };
-
   const getAiContext = () => ({
     month: calendarMonth,
     personalGyms: gyms.slice(0, 8).map((gym) => ({
@@ -3003,10 +2992,6 @@ export default function App() {
                 )}
               </div>
 
-              <button className="ai-btn" type="button" onClick={handleAiAnalysis}>
-                <Bot size={18} />
-                AI 分析 beta 视频
-              </button>
               {aiAnalysis ? <p className="ai-note">{aiAnalysis}</p> : null}
 
               <div className="share-box">
