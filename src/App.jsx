@@ -23,6 +23,7 @@ import {
   Search,
   Send,
   Share2,
+  ShoppingBag,
   Sparkles,
   Star,
   Target,
@@ -754,6 +755,115 @@ const AI_HOLD_MASCOTS = [
   },
 ];
 
+const PRODUCT_CATALOG = [
+  {
+    id: 'la-sportiva-tarantulace',
+    name: 'La Sportiva Tarantulace',
+    category: '攀岩鞋',
+    brand: 'La Sportiva',
+    price: '约 $99',
+    match: '新手第一双鞋、馆内抱石和顶绳',
+    fit: '中性鞋楦，绑带适合微调脚背和脚宽',
+    tags: ['入门', '舒适', '绑带'],
+    source: 'La Sportiva / REI 公开商品资料',
+    sourceUrl: 'https://www.lasportiva.com/en/shoes-climbing-tarantulace-man-zfcs134',
+    imageUrl:
+      'https://www.lasportiva.com/media/catalog/product/Z/F/ZFCS134_G00E29_ZFCS134.jpg?bg-color=255%2C255%2C255&canvas=700%3A700&fit=bounds&height=700&quality=80&width=700',
+    colors: ['#facc15', '#1f2937'],
+    summary: '经典入门鞋，重点是舒适和可调整性，适合作为第一双馆内训练鞋。',
+  },
+  {
+    id: 'scarpa-instinct-vsr',
+    name: 'SCARPA Instinct VSR',
+    category: '攀岩鞋',
+    brand: 'SCARPA',
+    price: '约 $219',
+    match: '进阶抱石、微小脚点、陡墙发力',
+    fit: '偏性能取向，包裹强，适合有一定经验后试穿',
+    tags: ['进阶', '抱石', '敏感'],
+    source: 'SCARPA 官方商品资料',
+    sourceUrl: 'https://us.scarpa.com/instinct-vsr',
+    imageUrl: 'https://us.scarpa.com/cdn/shop/files/70015_000_1_ins_vsr_blk_azu_instinct_vsr_black_azure_1.jpg?v=1732097117&width=900',
+    colors: ['#2563eb', '#f97316'],
+    summary: '进阶性能鞋，更适合已经知道自己脚型和尺码偏好的用户。',
+  },
+  {
+    id: 'black-diamond-momentum',
+    name: 'Black Diamond Momentum',
+    category: '攀岩鞋',
+    brand: 'Black Diamond',
+    price: '约 $100',
+    match: '长时间训练、热身线路、脚感舒适优先',
+    fit: '平直鞋型，针织鞋面透气，适合不想太挤脚的训练日',
+    tags: ['舒适', '训练', '平直'],
+    source: 'Black Diamond 官方商品资料',
+    sourceUrl: 'https://www.blackdiamondequipment.com/en_US/product/momentum-climbing-shoes-mens/',
+    imageUrl: 'https://blackdiamondequipment.com/cdn/shop/files/570101_9118_M_MOMENTUM_CLIMB_SHOES_BLACK_ANTHRACITE_01.jpg?v=1742402670&width=900',
+    colors: ['#0f766e', '#111827'],
+    summary: '舒适型训练鞋，适合高频去岩馆、希望降低脚部压力的用户。',
+  },
+  {
+    id: 'black-diamond-white-gold',
+    name: 'Black Diamond White Gold',
+    category: '镁粉',
+    brand: 'Black Diamond',
+    price: '约 $8-$15',
+    match: '日常馆内训练、手汗控制、补充消耗品',
+    fit: '散装镁粉，适合已有粉袋或粉桶的用户',
+    tags: ['镁粉', '消耗品', '训练'],
+    source: 'Black Diamond 官方商品资料',
+    sourceUrl: 'https://blackdiamondequipment.com/products/white-gold-loose-chalk-300-g',
+    imageUrl: 'https://blackdiamondequipment.com/cdn/shop/files/550495_0000_300G_WHITE_GOLD_LOOSE_CHALK_NO_COLOR_01.jpg?v=1742402292&width=900',
+    colors: ['#e5e7eb', '#38bdf8'],
+    summary: '通用散粉，适合作为日常训练补给，不需要根据等级做太复杂选择。',
+  },
+  {
+    id: 'frictionlabs-unicorn-dust',
+    name: 'Friction Labs Unicorn Dust',
+    category: '镁粉',
+    brand: 'Friction Labs',
+    price: '约 $15-$20',
+    match: '手汗明显、想要更细腻摩擦感',
+    fit: '细粉质感，适合对镁粉手感比较敏感的用户',
+    tags: ['细粉', '手汗', '高摩擦'],
+    source: 'Friction Labs 官方商品资料',
+    sourceUrl: 'https://shop.frictionlabs.com/products/friction-labs-loose-chalk-in-new-recyclable-packaging',
+    imageUrl: 'https://shop.frictionlabs.com/cdn/shop/products/6ozFamilyStones_600x600_a17c0c6b-9886-45e6-82c8-99bebd481e64.jpg?v=1678933735',
+    colors: ['#f8fafc', '#db2777'],
+    summary: '偏精细的高端镁粉，适合已经能感知不同粉质差异的用户。',
+  },
+  {
+    id: 'petzl-sakapoche',
+    name: 'Petzl Sakapoche Chalk Bag',
+    category: '粉袋',
+    brand: 'Petzl',
+    price: '约 $25-$35',
+    match: '抱石和绳攀通用、需要拉链袋收纳小物',
+    fit: '带腰带和拉链口袋，适合馆内外都想轻装的人',
+    tags: ['粉袋', '收纳', '通用'],
+    source: 'Petzl 官方商品资料',
+    sourceUrl: 'https://www.petzl.com/US/en/Sport/Packs-and-accessories/SAKAPOCHE',
+    imageUrl: 'https://www.petzl.com/sfc/servlet.shepherd/version/download/0686800000NNjfoAAD',
+    colors: ['#dc2626', '#111827'],
+    summary: '实用型粉袋，重点是稳定开口和小物收纳，适合作为第一只粉袋。',
+  },
+];
+
+function ProductVisual({ product, large = false }) {
+  return (
+    <span
+      className={`product-visual ${large ? 'product-visual-large' : ''}`}
+      style={{
+        '--product-primary': product.colors[0],
+        '--product-secondary': product.colors[1],
+      }}
+      aria-hidden="true"
+    >
+      {product.imageUrl ? <img src={product.imageUrl} alt="" loading="lazy" /> : <Package size={large ? 58 : 42} />}
+    </span>
+  );
+}
+
 export default function App() {
   const { user } = useAuth();
   const [gyms, setGyms] = useState([]);
@@ -774,6 +884,9 @@ export default function App() {
   const [activeAiHistoryId, setActiveAiHistoryId] = useState('');
   const [aiRecommendation, setAiRecommendation] = useState(() => readStoredAiHistory()[0]?.recommendation || '');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [activeProductId, setActiveProductId] = useState(PRODUCT_CATALOG[0]?.id || '');
+  const [productAiAnswer, setProductAiAnswer] = useState('');
+  const [isProductAiLoading, setIsProductAiLoading] = useState(false);
   const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
   const [gymSearchQuery, setGymSearchQuery] = useState('');
   const [publicGyms, setPublicGyms] = useState([]);
@@ -1289,6 +1402,7 @@ export default function App() {
   );
   const activeSquarePost = sortedSquarePosts.find((post) => post.id === activeSquarePostId) || null;
   const activeDiscussionRoute = squareRoutes.find((route) => route.id === activeDiscussionRouteId) || null;
+  const activeProduct = PRODUCT_CATALOG.find((product) => product.id === activeProductId) || PRODUCT_CATALOG[0];
   const activePublicRouteSections = activePublicRouteGroup
     ? [
         {
@@ -1391,6 +1505,11 @@ export default function App() {
 
   const closePublicRouteDiscussion = () => {
     setActiveView('gyms');
+  };
+
+  const selectProduct = (productId) => {
+    setActiveProductId(productId);
+    setProductAiAnswer('');
   };
 
   const updateActiveGym = (updates) => {
@@ -1785,7 +1904,23 @@ export default function App() {
       sentAt: route.sent_at || '',
       notes: route.notes ? route.notes.slice(0, 180) : '',
     })),
+    productCatalog: PRODUCT_CATALOG.map((product) => ({
+      id: product.id,
+      name: product.name,
+      category: product.category,
+      brand: product.brand,
+      price: product.price,
+      match: product.match,
+      fit: product.fit,
+      imageUrl: product.imageUrl,
+      tags: product.tags,
+      summary: product.summary,
+      source: product.source,
+    })),
   });
+
+  const getProductRecommendationNeed = (product) =>
+    `请结合我的攀岩记录判断「${product.name}」是否适合我。请重点看我的常爬难度、最近是否有未过线挑战、训练频率和使用场景；如果数据不足，请告诉我还需要补充脚型、预算、试穿感受或手汗情况。`;
 
   const getFallbackAiRecommendation = (need, mode = aiMode) => {
     const candidateGyms = gyms.length ? gyms : publicGymStats;
@@ -1812,7 +1947,14 @@ export default function App() {
       return `根据你的描述：“${need}”\n\n推荐先去 ${gymText || '你最近常去的岩馆'}。今天训练可以分三段：热身 20 分钟，选择 2-3 条低一级线路做脚点和重心练习；主训练 45 分钟，挑一条略有挑战的线路反复拆动作；最后 15 分钟做肩背和髋部放松。\n\n可优先参考：${routeText || '公开广场里本月同城用户分享的线路'}。\n\nAI 后端暂时不可用，这是本地备用训练计划。`;
     }
 
-    return `根据你的描述：“${need}”\n\n可以先围绕 ${gymText || '你最近常去的岩馆'} 做选择。如果你在问线路，优先挑一条略低于极限等级的线路拆 beta；如果你在问装备，先明确脚型、预算、使用场景和可试穿渠道；如果你在问岩馆，优先比较距离、墙型、线路更新频率和同伴情况。\n\n可参考的记录：${routeText || '公开广场里本月同城用户分享的线路'}。\n\nAI 后端暂时不可用，这是本地备用咨询建议。`;
+    const productIntentPattern = /鞋|攀岩鞋|镁粉|粉|粉袋|装备|购买|买|预算|脚型|手汗|chalk|shoe|bag/i;
+    const productText = productIntentPattern.test(need)
+      ? `\n\n模拟商品可参考：${PRODUCT_CATALOG.slice(0, 3)
+          .map((product) => `「${product.name}」（${product.category}，${product.match}）`)
+          .join('、')}。如果要买装备，先明确脚型、预算、使用场景和可试穿渠道。`
+      : '';
+
+    return `根据你的描述：“${need}”\n\n可以先围绕 ${gymText || '你最近常去的岩馆'} 做选择。如果你在问线路，优先挑一条略低于极限等级的线路拆 beta；如果你在问岩馆，优先比较距离、墙型、线路更新频率和同伴情况。${productText}\n\n可参考的记录：${routeText || '公开广场里本月同城用户分享的线路'}。\n\nAI 后端暂时不可用，这是本地备用咨询建议。`;
   };
 
   const saveAiHistoryEntry = ({ mode, need, recommendation }) => {
@@ -1886,6 +2028,56 @@ export default function App() {
     }
   };
 
+  const handleProductAiRecommendation = async (product) => {
+    if (!product) return;
+
+    const need = getProductRecommendationNeed(product);
+    setActiveProductId(product.id);
+    setIsProductAiLoading(true);
+    setProductAiAnswer(`正在结合你的记录分析「${product.name}」...`);
+
+    try {
+      const response = await fetch('/api/ai-recommendation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          need,
+          mode: 'consult',
+          context: {
+            ...getAiContext(),
+            focusedProduct: {
+              id: product.id,
+              name: product.name,
+              category: product.category,
+              brand: product.brand,
+              price: product.price,
+              match: product.match,
+              fit: product.fit,
+              imageUrl: product.imageUrl,
+              tags: product.tags,
+              summary: product.summary,
+              source: product.source,
+            },
+          },
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(result.error || 'AI 服务暂时不可用。');
+      }
+
+      setProductAiAnswer(result.recommendation || getFallbackAiRecommendation(need, 'consult'));
+    } catch (error) {
+      console.warn('商品 AI 分析失败', error);
+      setProductAiAnswer(`${error.message}\n\n${getFallbackAiRecommendation(need, 'consult')}`);
+    } finally {
+      setIsProductAiLoading(false);
+    }
+  };
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -1915,6 +2107,9 @@ export default function App() {
             </TopNavButton>
             <TopNavButton active={activeView === 'square'} icon={Users} onClick={() => switchView('square')}>
               广场
+            </TopNavButton>
+            <TopNavButton active={activeView === 'store'} icon={ShoppingBag} onClick={() => switchView('store')}>
+              商城
             </TopNavButton>
             <TopNavButton active={activeView === 'ai'} icon={Sparkles} onClick={() => switchView('ai')}>
               AI
@@ -2323,6 +2518,94 @@ export default function App() {
                   <span>装备、岩馆和日常话题都可以在这里聊。</span>
                 </div>
               )}
+            </aside>
+          </section>
+        </main>
+      ) : null}
+
+      {activeView === 'store' ? (
+        <main className="store-view">
+          <section className="intro-band">
+            <div>
+              <p className="eyebrow">模拟商城</p>
+              <h1>攀岩装备精选</h1>
+            </div>
+          </section>
+
+          <section className="store-layout" aria-label="攀岩装备商城">
+            <div className="product-grid">
+              {PRODUCT_CATALOG.map((product) => (
+                <article className={`product-card ${activeProduct?.id === product.id ? 'active' : ''}`} key={product.id}>
+                  <button className="product-main" type="button" onClick={() => selectProduct(product.id)}>
+                    <ProductVisual product={product} />
+                    <span className="product-copy">
+                      <small>{product.brand} · {product.category}</small>
+                      <strong>{product.name}</strong>
+                      <em>{product.price}</em>
+                    </span>
+                  </button>
+                  <p>{product.summary}</p>
+                  <div className="product-tags">
+                    {product.tags.map((tag) => (
+                      <span key={tag}>{tag}</span>
+                    ))}
+                  </div>
+                  <div className="product-actions">
+                    <button className="ghost-btn compact" type="button" onClick={() => selectProduct(product.id)}>
+                      <Search size={17} />
+                      详情
+                    </button>
+                    <button className="ai-btn compact" type="button" onClick={() => handleProductAiRecommendation(product)} disabled={isProductAiLoading}>
+                      <Sparkles size={17} />
+                      问 AI
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <aside className="product-detail-panel" aria-label="商品详情和 AI 建议">
+              {activeProduct ? (
+                <>
+                  <div className="section-title">
+                    <p className="eyebrow">{activeProduct.category}</p>
+                    <h2>{activeProduct.name}</h2>
+                  </div>
+                  <ProductVisual product={activeProduct} large />
+                  <dl className="product-spec-list">
+                    <div>
+                      <dt>适合场景</dt>
+                      <dd>{activeProduct.match}</dd>
+                    </div>
+                    <div>
+                      <dt>尺码/手感</dt>
+                      <dd>{activeProduct.fit}</dd>
+                    </div>
+                    <div>
+                      <dt>模拟价格</dt>
+                      <dd>{activeProduct.price}</dd>
+                    </div>
+                  </dl>
+                  <a className="source-link" href={activeProduct.sourceUrl} target="_blank" rel="noreferrer">
+                    {activeProduct.source}
+                  </a>
+                  <button className="ai-btn product-ai-trigger" type="button" onClick={() => handleProductAiRecommendation(activeProduct)} disabled={isProductAiLoading}>
+                    <Sparkles size={18} />
+                    {isProductAiLoading ? 'AI 正在看你的记录...' : '结合我的数据分析'}
+                  </button>
+                  <div className="product-ai-panel" aria-live="polite">
+                    {productAiAnswer ? (
+                      <pre className="ai-result">{productAiAnswer}</pre>
+                    ) : (
+                      <div className="ai-empty-state compact">
+                        <Bot size={21} />
+                        <strong>让 AI 先看记录</strong>
+                        <p>会结合你的岩馆、难度、未过线挑战和商品用途回答是否适合。</p>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : null}
             </aside>
           </section>
         </main>
