@@ -33,7 +33,10 @@ import {
   Video,
 } from 'lucide-react';
 import './App.css';
-import aiHoldsMascot from './assets/ai-holds-mascot.png';
+import aiHoldCrimp from './assets/ai-hold-crimp.png';
+import aiHoldJug from './assets/ai-hold-jug.png';
+import aiHoldPinch from './assets/ai-hold-pinch.png';
+import aiHoldSloper from './assets/ai-hold-sloper.png';
 import AuthModal from './components/AuthModal';
 import { useAuth } from './context/useAuth';
 import { supabase } from './lib/supabaseClient';
@@ -63,6 +66,8 @@ const PUBLIC_SQUARE_COMMENTS_TABLE = 'public_square_comments';
 const BETA_VIDEO_BUCKET = 'beta-videos';
 const MAX_LOCAL_VIDEO_BYTES = 6 * 1024 * 1024;
 const LOCAL_SQUARE_POSTS_KEY = 'betaclimb:square-posts';
+const LOCAL_AI_HISTORY_KEY = 'betaclimb:ai-history';
+const MAX_AI_HISTORY_ITEMS = 24;
 
 const fileToDataUrl = (file) =>
   new Promise((resolve, reject) => {
@@ -104,6 +109,26 @@ const readStoredSquarePosts = () => {
     return Array.isArray(parsedValue) ? parsedValue : [];
   } catch {
     return [];
+  }
+};
+
+const readStoredAiHistory = () => {
+  try {
+    const storedValue = window.localStorage.getItem(LOCAL_AI_HISTORY_KEY);
+    if (!storedValue) return [];
+
+    const parsedValue = JSON.parse(storedValue);
+    return Array.isArray(parsedValue) ? parsedValue : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredAiHistory = (entries) => {
+  try {
+    window.localStorage.setItem(LOCAL_AI_HISTORY_KEY, JSON.stringify(entries));
+  } catch (error) {
+    console.warn('AI 历史本地缓存失败。', error);
   }
 };
 
@@ -673,6 +698,18 @@ function OwnBadge({ children = '我' }) {
   return <span className="own-badge">{children}</span>;
 }
 
+const formatAiHistoryTime = (createdAt) => {
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return '刚刚';
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+};
+
 const AI_ASSISTANT_MODES = [
   {
     id: 'consult',
@@ -694,6 +731,29 @@ const AI_ASSISTANT_MODES = [
   },
 ];
 
+const AI_HOLD_MASCOTS = [
+  {
+    image: aiHoldPinch,
+    name: 'Pinch',
+    description: '细腰捏点',
+  },
+  {
+    image: aiHoldCrimp,
+    name: 'Crimp',
+    description: '小手点',
+  },
+  {
+    image: aiHoldSloper,
+    name: 'Sloper',
+    description: '圆包点',
+  },
+  {
+    image: aiHoldJug,
+    name: 'Jug',
+    description: '大把手',
+  },
+];
+
 export default function App() {
   const { user } = useAuth();
   const [gyms, setGyms] = useState([]);
@@ -707,9 +767,12 @@ export default function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [isEditingGym, setIsEditingGym] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState('');
+  const [aiMascot] = useState(() => AI_HOLD_MASCOTS[Math.floor(Math.random() * AI_HOLD_MASCOTS.length)]);
   const [aiMode, setAiMode] = useState('consult');
   const [aiNeed, setAiNeed] = useState('');
-  const [aiRecommendation, setAiRecommendation] = useState('');
+  const [aiHistory, setAiHistory] = useState(() => readStoredAiHistory());
+  const [activeAiHistoryId, setActiveAiHistoryId] = useState('');
+  const [aiRecommendation, setAiRecommendation] = useState(() => readStoredAiHistory()[0]?.recommendation || '');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
   const [gymSearchQuery, setGymSearchQuery] = useState('');
@@ -756,6 +819,17 @@ export default function App() {
     setIsEditingGym(false);
     setAiAnalysis('');
   };
+
+  useEffect(() => {
+    if (!activeAiHistoryId && aiHistory[0]) {
+      setActiveAiHistoryId(aiHistory[0].id);
+      setAiMode(aiHistory[0].mode || 'consult');
+      setAiNeed(aiHistory[0].need || '');
+      if (!aiRecommendation) {
+        setAiRecommendation(aiHistory[0].recommendation);
+      }
+    }
+  }, [activeAiHistoryId, aiHistory, aiRecommendation]);
 
   useEffect(() => {
     let isActive = true;
@@ -1752,6 +1826,23 @@ export default function App() {
     return `根据你的描述：“${need}”\n\n可以先围绕 ${gymText || '你最近常去的岩馆'} 做选择。如果你在问线路，优先挑一条略低于极限等级的线路拆 beta；如果你在问装备，先明确脚型、预算、使用场景和可试穿渠道；如果你在问岩馆，优先比较距离、墙型、线路更新频率和同伴情况。\n\n可参考的记录：${routeText || '公开广场里本月同城用户分享的线路'}。\n\nAI 后端暂时不可用，这是本地备用咨询建议。`;
   };
 
+  const saveAiHistoryEntry = ({ mode, need, recommendation }) => {
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      mode,
+      need,
+      recommendation,
+      createdAt: new Date().toISOString(),
+    };
+
+    setAiHistory((currentHistory) => {
+      const nextHistory = [entry, ...currentHistory].slice(0, MAX_AI_HISTORY_ITEMS);
+      writeStoredAiHistory(nextHistory);
+      return nextHistory;
+    });
+    setActiveAiHistoryId(entry.id);
+  };
+
   const handleAiRecommendation = async () => {
     const need = aiNeed.trim();
     const selectedMode = AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0];
@@ -1785,10 +1876,22 @@ export default function App() {
         throw new Error(result.error || 'AI 服务暂时不可用。');
       }
 
-      setAiRecommendation(result.recommendation || getFallbackAiRecommendation(need, aiMode));
+      const recommendation = result.recommendation || getFallbackAiRecommendation(need, aiMode);
+      setAiRecommendation(recommendation);
+      saveAiHistoryEntry({
+        mode: aiMode,
+        need,
+        recommendation,
+      });
     } catch (error) {
       console.warn('AI 推荐失败', error);
-      setAiRecommendation(`${error.message}\n\n${getFallbackAiRecommendation(need, aiMode)}`);
+      const recommendation = `${error.message}\n\n${getFallbackAiRecommendation(need, aiMode)}`;
+      setAiRecommendation(recommendation);
+      saveAiHistoryEntry({
+        mode: aiMode,
+        need,
+        recommendation,
+      });
     } finally {
       setIsAiLoading(false);
     }
@@ -2246,8 +2349,11 @@ export default function App() {
                 <p>
                   可以问线路 beta、装备选择、岩馆安排，也可以单独生成一次训练计划。
                 </p>
+                <span className="ai-mascot-label">
+                  今日岩点：{aiMascot.name} · {aiMascot.description}
+                </span>
               </div>
-              <img src={aiHoldsMascot} alt="BetaClimb AI 岩点形象" />
+              <img src={aiMascot.image} alt={`BetaClimb AI ${aiMascot.description}形象`} />
             </div>
 
             <div className="ai-mode-grid" role="tablist" aria-label="AI 助手类型">
@@ -2263,7 +2369,6 @@ export default function App() {
                     aria-selected={aiMode === mode.id}
                     onClick={() => {
                       setAiMode(mode.id);
-                      setAiRecommendation('');
                     }}
                   >
                     <span className="ai-mode-icon">
@@ -2326,6 +2431,57 @@ export default function App() {
                 )}
               </div>
             </div>
+
+            <section className="ai-history-panel" aria-label="AI 历史记录">
+              <div className="ai-history-heading">
+                <div>
+                  <p className="eyebrow">最近咨询</p>
+                  <h2>保存过的 AI 回答</h2>
+                </div>
+                {aiHistory.length ? (
+                  <button
+                    className="ghost-btn icon-only"
+                    type="button"
+                    onClick={() => {
+                      setAiHistory([]);
+                      setActiveAiHistoryId('');
+                      setAiRecommendation('');
+                      writeStoredAiHistory([]);
+                    }}
+                    aria-label="清空 AI 历史"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                ) : null}
+              </div>
+              {aiHistory.length ? (
+                <div className="ai-history-list">
+                  {aiHistory.map((entry) => {
+                    const entryMode = AI_ASSISTANT_MODES.find((mode) => mode.id === entry.mode) || AI_ASSISTANT_MODES[0];
+
+                    return (
+                      <button
+                        className={`ai-history-item ${activeAiHistoryId === entry.id ? 'active' : ''}`}
+                        key={entry.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveAiHistoryId(entry.id);
+                          setAiMode(entry.mode);
+                          setAiNeed(entry.need);
+                          setAiRecommendation(entry.recommendation);
+                        }}
+                      >
+                        <span>{entryMode.title}</span>
+                        <strong>{entry.need}</strong>
+                        <small>{formatAiHistoryTime(entry.createdAt)}</small>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="empty-copy">还没有保存的 AI 回答，生成一次后会自动出现在这里。</p>
+              )}
+            </section>
           </section>
         </main>
       ) : null}
