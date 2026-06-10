@@ -1156,11 +1156,11 @@ export default function App() {
   const [aiAnalysis, setAiAnalysis] = useState('');
   const [aiMascot] = useState(() => AI_HOLD_MASCOTS[Math.floor(Math.random() * AI_HOLD_MASCOTS.length)]);
   const [aiMode, setAiMode] = useState('consult');
-  const [aiNeed, setAiNeed] = useState('');
+  const [aiNeedsByMode, setAiNeedsByMode] = useState({});
   const [aiHistory, setAiHistory] = useState(() => readStoredAiHistory());
-  const [activeAiHistoryId, setActiveAiHistoryId] = useState('');
-  const [aiRecommendation, setAiRecommendation] = useState('');
-  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [activeAiSessionIdsByMode, setActiveAiSessionIdsByMode] = useState({});
+  const [aiRecommendationsByMode, setAiRecommendationsByMode] = useState({});
+  const [aiLoadingByMode, setAiLoadingByMode] = useState({});
   const [trainingPlans, setTrainingPlans] = useState(() => readStoredTrainingPlans());
   const [trainingPlanDraft, setTrainingPlanDraft] = useState(null);
   const [activeTrainingPlanId, setActiveTrainingPlanId] = useState('');
@@ -1218,17 +1218,35 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!activeAiHistoryId && aiHistory[0]) {
-      setActiveAiHistoryId(aiHistory[0].id);
-      setAiMode(aiHistory[0].mode || 'consult');
-      setAiNeed('');
-      if (!aiRecommendation) {
-        setAiRecommendation(
-          [...(aiHistory[0].messages || [])].reverse().find((message) => message.role === 'assistant')?.content || '',
-        );
+    const normalizedHistory = normalizeAiHistory(aiHistory);
+    if (!normalizedHistory.length) return;
+
+    setActiveAiSessionIdsByMode((currentIds) => {
+      const nextIds = { ...currentIds };
+      let changed = false;
+      AI_ASSISTANT_MODES.forEach((mode) => {
+        if (!nextIds[mode.id]) {
+          const recentSession = normalizedHistory.find((entry) => entry.mode === mode.id);
+          if (recentSession) {
+            nextIds[mode.id] = recentSession.id;
+            changed = true;
+          }
+        }
+      });
+      return changed ? nextIds : currentIds;
+    });
+
+    if (!activeAiSessionIdsByMode[aiMode]) {
+      const recentSession = normalizedHistory.find((entry) => entry.mode === aiMode);
+      if (recentSession && !aiRecommendation) {
+        const latestAssistantMessage = [...recentSession.messages].reverse().find((message) => message.role === 'assistant')?.content || '';
+        setAiRecommendationsByMode((currentRecommendations) => ({
+          ...currentRecommendations,
+          [aiMode]: latestAssistantMessage,
+        }));
       }
     }
-  }, [activeAiHistoryId, aiHistory, aiRecommendation]);
+  }, [activeAiSessionIdsByMode, aiHistory, aiMode, aiRecommendation]);
 
   useEffect(() => {
     let isActive = true;
@@ -1696,6 +1714,10 @@ export default function App() {
   const activeDiscussionRoute = squareRoutes.find((route) => route.id === activeDiscussionRouteId) || null;
   const activeProduct = PRODUCT_CATALOG.find((product) => product.id === activeProductId) || PRODUCT_CATALOG[0];
   const selectedAiMode = AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0];
+  const aiNeed = aiNeedsByMode[aiMode] || '';
+  const aiRecommendation = aiRecommendationsByMode[aiMode] || '';
+  const isAiLoading = Boolean(aiLoadingByMode[aiMode]);
+  const activeAiHistoryId = activeAiSessionIdsByMode[aiMode] || '';
   const activeAiSession = aiHistory.find((entry) => entry.id === activeAiHistoryId) || null;
   const activeAiConversationMessages = activeAiSession?.mode === aiMode ? activeAiSession.messages || [] : [];
   const activePublicRouteSections = activePublicRouteGroup
@@ -2344,11 +2366,39 @@ export default function App() {
     return `根据你的描述：“${need}”\n\n可以先围绕 ${gymText || '你最近常去的岩馆'} 做选择。如果你在问线路，优先挑一条略低于极限等级的线路拆 beta；如果你在问岩馆，优先比较距离、墙型、线路更新频率和同伴情况。${productText}\n\n可参考的记录：${routeText || '公开广场里本月同城用户分享的线路'}。\n\nAI 后端暂时不可用，这是本地备用咨询建议。`;
   };
 
+  const updateAiNeedForMode = (mode, value) => {
+    setAiNeedsByMode((currentNeeds) => ({
+      ...currentNeeds,
+      [mode]: value,
+    }));
+  };
+
+  const setActiveAiSessionForMode = (mode, sessionId) => {
+    setActiveAiSessionIdsByMode((currentIds) => ({
+      ...currentIds,
+      [mode]: sessionId || '',
+    }));
+  };
+
+  const updateAiRecommendationForMode = (mode, recommendation) => {
+    setAiRecommendationsByMode((currentRecommendations) => ({
+      ...currentRecommendations,
+      [mode]: recommendation || '',
+    }));
+  };
+
+  const setAiLoadingForMode = (mode, isLoading) => {
+    setAiLoadingByMode((currentLoading) => ({
+      ...currentLoading,
+      [mode]: Boolean(isLoading),
+    }));
+  };
+
   const startNewAiSession = (mode = aiMode) => {
-    setActiveAiHistoryId('');
     setAiMode(mode);
-    setAiNeed('');
-    setAiRecommendation('');
+    setActiveAiSessionForMode(mode, '');
+    updateAiNeedForMode(mode, '');
+    updateAiRecommendationForMode(mode, '');
     setTrainingPlanDraft(null);
     setAiPage('chat');
   };
@@ -2391,7 +2441,7 @@ export default function App() {
 
     writeStoredAiHistory(nextHistory);
     setAiHistory(nextHistory);
-    setActiveAiHistoryId(nextSession.id);
+    setActiveAiSessionForMode(mode, nextSession.id);
   };
 
   const updateTrainingPlanDraft = (updates) => {
@@ -2570,7 +2620,8 @@ export default function App() {
     const need = aiNeed.trim();
     const selectedMode = AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0];
     if (!need && aiMode !== 'route_history') {
-      setAiRecommendation(
+      updateAiRecommendationForMode(
+        aiMode,
         aiMode === 'training'
           ? '先写下今天的训练目标，比如“想练脚法，强度不要太大，训练 90 分钟”。'
           : '先写下你想问的内容，比如“怎么选第一双攀岩鞋”或“今晚去哪家岩馆练 slab”。',
@@ -2578,8 +2629,8 @@ export default function App() {
       return;
     }
 
-    setIsAiLoading(true);
-    setAiRecommendation(selectedMode.loading);
+    setAiLoadingForMode(aiMode, true);
+    updateAiRecommendationForMode(aiMode, selectedMode.loading);
     setTrainingPlanDraft(null);
     const aiContext = getAiContext();
     const requestNeed = need || '请根据我最近 30 天的线路记录生成今天路线推荐。';
@@ -2606,7 +2657,7 @@ export default function App() {
         aiMode === 'route_history'
           ? formatRouteHistoryRecommendation(result.structuredRecommendation, result.recommendation)
           : result.recommendation || getFallbackAiRecommendation(requestNeed, aiMode);
-      setAiRecommendation(recommendation);
+      updateAiRecommendationForMode(aiMode, recommendation);
       saveAiHistoryEntry({
         mode: aiMode,
         need: aiMode === 'route_history' ? `最近 30 天路线推荐：${requestNeed}` : requestNeed,
@@ -2618,7 +2669,7 @@ export default function App() {
     } catch (error) {
       console.warn('AI 推荐失败', error);
       const recommendation = `${error.message}\n\n${getFallbackAiRecommendation(requestNeed, aiMode)}`;
-      setAiRecommendation(recommendation);
+      updateAiRecommendationForMode(aiMode, recommendation);
       saveAiHistoryEntry({
         mode: aiMode,
         need: aiMode === 'route_history' ? `最近 30 天路线推荐：${requestNeed}` : requestNeed,
@@ -2628,8 +2679,8 @@ export default function App() {
         setTrainingPlanDraft(inferLongTermPlanDraft(requestNeed, aiContext));
       }
     } finally {
-      setAiNeed('');
-      setIsAiLoading(false);
+      updateAiNeedForMode(aiMode, '');
+      setAiLoadingForMode(aiMode, false);
     }
   };
 
@@ -3226,8 +3277,10 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       setAiHistory([]);
-                      setActiveAiHistoryId('');
-                      setAiRecommendation('');
+                      setActiveAiSessionIdsByMode({});
+                      setAiNeedsByMode({});
+                      setAiRecommendationsByMode({});
+                      setAiLoadingByMode({});
                       writeStoredAiHistory([]);
                     }}
                     aria-label="清空 AI 历史"
@@ -3253,10 +3306,10 @@ export default function App() {
                           key={entry.id}
                           type="button"
                           onClick={() => {
-                            setActiveAiHistoryId(entry.id);
                             setAiMode(entry.mode);
-                            setAiNeed('');
-                            setAiRecommendation(latestAssistantMessage);
+                            setActiveAiSessionForMode(entry.mode, entry.id);
+                            updateAiNeedForMode(entry.mode, '');
+                            updateAiRecommendationForMode(entry.mode, latestAssistantMessage);
                             setAiPage('chat');
                           }}
                         >
@@ -3463,7 +3516,7 @@ export default function App() {
                     <textarea
                       value={aiNeed}
                       placeholder={selectedAiMode.placeholder}
-                      onChange={(event) => setAiNeed(event.target.value)}
+                      onChange={(event) => updateAiNeedForMode(aiMode, event.target.value)}
                     />
                   </label>
                   <button className="ai-btn ai-submit" type="button" onClick={handleAiRecommendation} disabled={isAiLoading}>
@@ -3507,9 +3560,10 @@ export default function App() {
                       onClick={() => {
                         const recentSession = aiHistory.find((entry) => entry.mode === mode.id);
                         setAiMode(mode.id);
-                        setAiNeed('');
-                        setActiveAiHistoryId(recentSession?.id || '');
-                        setAiRecommendation(
+                        updateAiNeedForMode(mode.id, '');
+                        setActiveAiSessionForMode(mode.id, recentSession?.id || '');
+                        updateAiRecommendationForMode(
+                          mode.id,
                           [...(recentSession?.messages || [])].reverse().find((message) => message.role === 'assistant')?.content || '',
                         );
                         setAiPage('chat');
