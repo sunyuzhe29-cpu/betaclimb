@@ -806,9 +806,9 @@ function UserMenu({ onOpenAuth }) {
 
 function TopNavButton({ active, children, icon: Icon, onClick }) {
   return (
-    <button className={`top-nav-btn ${active ? 'active' : ''}`} type="button" onClick={onClick}>
+    <button className={`bottom-nav-btn ${active ? 'active' : ''}`} type="button" onClick={onClick}>
       <Icon size={17} />
-      {children}
+      <span>{children}</span>
     </button>
   );
 }
@@ -1019,8 +1019,10 @@ export default function App() {
   const [trainingPlanDraft, setTrainingPlanDraft] = useState(null);
   const [activeTrainingPlanId, setActiveTrainingPlanId] = useState('');
   const [activeProductId, setActiveProductId] = useState(PRODUCT_CATALOG[0]?.id || '');
+  const [storePage, setStorePage] = useState('list');
   const [productAiAnswer, setProductAiAnswer] = useState('');
   const [isProductAiLoading, setIsProductAiLoading] = useState(false);
+  const [aiPage, setAiPage] = useState('chat');
   const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
   const [gymSearchQuery, setGymSearchQuery] = useState('');
   const [publicGyms, setPublicGyms] = useState([]);
@@ -1065,6 +1067,8 @@ export default function App() {
     setIsEditing(false);
     setIsEditingGym(false);
     setAiAnalysis('');
+    setStorePage('list');
+    setAiPage('chat');
   };
 
   useEffect(() => {
@@ -1650,6 +1654,7 @@ export default function App() {
   const selectProduct = (productId) => {
     setActiveProductId(productId);
     setProductAiAnswer('');
+    setStorePage('detail');
   };
 
   const updateActiveGym = (updates) => {
@@ -2353,6 +2358,7 @@ export default function App() {
 
     const need = getProductRecommendationNeed(product);
     setActiveProductId(product.id);
+    setStorePage('detail');
     setIsProductAiLoading(true);
     setProductAiAnswer(`正在结合你的记录分析「${product.name}」...`);
 
@@ -2418,23 +2424,6 @@ export default function App() {
         </button>
 
         <div className="topbar-actions">
-          <nav className="top-nav" aria-label="主功能">
-            <TopNavButton active={activeView === 'personal'} icon={Dumbbell} onClick={() => switchView('personal')}>
-              我的
-            </TopNavButton>
-            <TopNavButton active={activeView === 'gyms'} icon={Building2} onClick={() => switchView('gyms')}>
-              岩馆
-            </TopNavButton>
-            <TopNavButton active={activeView === 'square'} icon={Users} onClick={() => switchView('square')}>
-              广场
-            </TopNavButton>
-            <TopNavButton active={activeView === 'store'} icon={ShoppingBag} onClick={() => switchView('store')}>
-              商城
-            </TopNavButton>
-            <TopNavButton active={activeView === 'ai'} icon={Sparkles} onClick={() => switchView('ai')}>
-              AI
-            </TopNavButton>
-          </nav>
           <div className="summary-strip" aria-label="记录统计">
             <span>{gyms.length} 个岩馆</span>
             <span>{totalRoutes} 条线路</span>
@@ -2845,49 +2834,29 @@ export default function App() {
 
       {activeView === 'store' ? (
         <main className="store-view">
-          <section className="intro-band">
-            <div>
-              <p className="eyebrow">模拟商城</p>
-              <h1>攀岩装备精选</h1>
-            </div>
-          </section>
+          {storePage === 'detail' && activeProduct ? (
+            <>
+              <section className="view-header">
+                <button className="ghost-btn" type="button" onClick={() => setStorePage('list')}>
+                  <ArrowLeft size={18} />
+                  商城
+                </button>
+                <div>
+                  <p className="eyebrow">{activeProduct.category}</p>
+                  <h1>{activeProduct.name}</h1>
+                </div>
+              </section>
 
-          <section className="store-layout" aria-label="攀岩装备商城">
-            <div className="product-grid">
-              {PRODUCT_CATALOG.map((product) => (
-                <article className={`product-card ${activeProduct?.id === product.id ? 'active' : ''}`} key={product.id}>
-                  <button className="product-main" type="button" onClick={() => selectProduct(product.id)}>
-                    <ProductVisual product={product} />
-                    <span className="product-copy">
-                      <small>{product.brand} · {product.category}</small>
-                      <strong>{product.name}</strong>
-                      <em>{product.price}</em>
-                    </span>
-                  </button>
-                  <p>{product.summary}</p>
-                  <div className="product-tags">
-                    {product.tags.map((tag) => (
-                      <span key={tag}>{tag}</span>
-                    ))}
-                  </div>
-                  <div className="product-actions">
-                    <button className="ghost-btn compact" type="button" onClick={() => selectProduct(product.id)}>
-                      <Search size={17} />
-                      详情
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-
-            <aside className="product-detail-panel" aria-label="商品详情和 AI 建议">
-              {activeProduct ? (
-                <>
-                  <div className="section-title">
-                    <p className="eyebrow">{activeProduct.category}</p>
-                    <h2>{activeProduct.name}</h2>
-                  </div>
+              <section className="product-detail-page" aria-label="商品详情和 AI 建议">
+                <div className="product-detail-media">
                   <ProductVisual product={activeProduct} large />
+                </div>
+                <aside className="product-detail-panel" aria-label="商品信息">
+                  <div className="section-title">
+                    <p className="eyebrow">{activeProduct.brand}</p>
+                    <h2>{activeProduct.price}</h2>
+                  </div>
+                  <p className="product-detail-summary">{activeProduct.summary}</p>
                   <dl className="product-spec-list">
                     <div>
                       <dt>适合场景</dt>
@@ -2920,15 +2889,110 @@ export default function App() {
                       </div>
                     )}
                   </div>
-                </>
-              ) : null}
-            </aside>
-          </section>
+                </aside>
+              </section>
+            </>
+          ) : (
+            <>
+              <section className="intro-band">
+                <div>
+                  <p className="eyebrow">模拟商城</p>
+                  <h1>攀岩装备精选</h1>
+                </div>
+              </section>
+
+              <section className="product-grid" aria-label="攀岩装备商城">
+                {PRODUCT_CATALOG.map((product) => (
+                  <article className="product-card" key={product.id}>
+                    <button className="product-main" type="button" onClick={() => selectProduct(product.id)}>
+                      <ProductVisual product={product} />
+                      <span className="product-copy">
+                        <small>{product.brand} · {product.category}</small>
+                        <strong>{product.name}</strong>
+                        <em>{product.price}</em>
+                      </span>
+                      <ChevronRight size={18} />
+                    </button>
+                    <p>{product.summary}</p>
+                    <div className="product-tags">
+                      {product.tags.map((tag) => (
+                        <span key={tag}>{tag}</span>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </section>
+            </>
+          )}
         </main>
       ) : null}
 
       {activeView === 'ai' ? (
         <main className="ai-view">
+          {aiPage === 'history' ? (
+            <>
+              <section className="view-header">
+                <button className="ghost-btn" type="button" onClick={() => setAiPage('chat')}>
+                  <ArrowLeft size={18} />
+                  AI 助手
+                </button>
+                <div>
+                  <p className="eyebrow">最近咨询</p>
+                  <h1>AI 历史记录</h1>
+                </div>
+                {aiHistory.length ? (
+                  <button
+                    className="ghost-btn"
+                    type="button"
+                    onClick={() => {
+                      setAiHistory([]);
+                      setActiveAiHistoryId('');
+                      setAiRecommendation('');
+                      writeStoredAiHistory([]);
+                    }}
+                    aria-label="清空 AI 历史"
+                  >
+                    <Trash2 size={16} />
+                    清空
+                  </button>
+                ) : null}
+              </section>
+
+              <section className="ai-history-panel ai-history-page" aria-label="AI 历史记录">
+                {aiHistory.length ? (
+                  <div className="ai-history-list">
+                    {aiHistory.map((entry) => {
+                      const entryMode = AI_ASSISTANT_MODES.find((mode) => mode.id === entry.mode) || AI_ASSISTANT_MODES[0];
+
+                      return (
+                        <button
+                          className={`ai-history-item ${activeAiHistoryId === entry.id ? 'active' : ''}`}
+                          key={entry.id}
+                          type="button"
+                          onClick={() => {
+                            setActiveAiHistoryId(entry.id);
+                            setAiMode(entry.mode);
+                            setAiNeed(entry.need);
+                            setAiRecommendation(entry.recommendation);
+                            setAiPage('chat');
+                          }}
+                        >
+                          <span>{entryMode.title}</span>
+                          <strong>{entry.need}</strong>
+                          <small>{formatAiHistoryTime(entry.createdAt)}</small>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <strong>还没有保存的 AI 回答</strong>
+                    <span>生成一次建议后会自动出现在这里。</span>
+                  </div>
+                )}
+              </section>
+            </>
+          ) : (
           <section className="ai-workspace">
             <div className="ai-hero">
               <div className="ai-hero-copy">
@@ -2940,6 +3004,11 @@ export default function App() {
                 <span className="ai-mascot-label">
                   今日岩点：{aiMascot.name} · {aiMascot.description}
                 </span>
+                <button className="ghost-btn ai-history-entry" type="button" onClick={() => setAiPage('history')}>
+                  <ClipboardList size={17} />
+                  历史记录
+                  {aiHistory.length ? <small>{aiHistory.length}</small> : null}
+                </button>
               </div>
               <img src={aiMascot.image} alt={`BetaClimb AI ${aiMascot.description}形象`} />
             </div>
@@ -3131,57 +3200,8 @@ export default function App() {
               </section>
             ) : null}
 
-            <section className="ai-history-panel" aria-label="AI 历史记录">
-              <div className="ai-history-heading">
-                <div>
-                  <p className="eyebrow">最近咨询</p>
-                  <h2>保存过的 AI 回答</h2>
-                </div>
-                {aiHistory.length ? (
-                  <button
-                    className="ghost-btn icon-only"
-                    type="button"
-                    onClick={() => {
-                      setAiHistory([]);
-                      setActiveAiHistoryId('');
-                      setAiRecommendation('');
-                      writeStoredAiHistory([]);
-                    }}
-                    aria-label="清空 AI 历史"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                ) : null}
-              </div>
-              {aiHistory.length ? (
-                <div className="ai-history-list">
-                  {aiHistory.map((entry) => {
-                    const entryMode = AI_ASSISTANT_MODES.find((mode) => mode.id === entry.mode) || AI_ASSISTANT_MODES[0];
-
-                    return (
-                      <button
-                        className={`ai-history-item ${activeAiHistoryId === entry.id ? 'active' : ''}`}
-                        key={entry.id}
-                        type="button"
-                        onClick={() => {
-                          setActiveAiHistoryId(entry.id);
-                          setAiMode(entry.mode);
-                          setAiNeed(entry.need);
-                          setAiRecommendation(entry.recommendation);
-                        }}
-                      >
-                        <span>{entryMode.title}</span>
-                        <strong>{entry.need}</strong>
-                        <small>{formatAiHistoryTime(entry.createdAt)}</small>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="empty-copy">还没有保存的 AI 回答，生成一次后会自动出现在这里。</p>
-              )}
-            </section>
           </section>
+          )}
         </main>
       ) : null}
 
@@ -3941,6 +3961,24 @@ export default function App() {
           </section>
         </main>
       ) : null}
+
+      <nav className="bottom-nav" aria-label="主功能">
+        <TopNavButton active={activeView === 'personal'} icon={Dumbbell} onClick={() => switchView('personal')}>
+          我的
+        </TopNavButton>
+        <TopNavButton active={activeView === 'gyms' || activeView === 'routeDiscussion'} icon={Building2} onClick={() => switchView('gyms')}>
+          岩馆
+        </TopNavButton>
+        <TopNavButton active={activeView === 'square'} icon={Users} onClick={() => switchView('square')}>
+          广场
+        </TopNavButton>
+        <TopNavButton active={activeView === 'store'} icon={ShoppingBag} onClick={() => switchView('store')}>
+          商城
+        </TopNavButton>
+        <TopNavButton active={activeView === 'ai'} icon={Sparkles} onClick={() => switchView('ai')}>
+          AI
+        </TopNavButton>
+      </nav>
     </div>
   );
 }
