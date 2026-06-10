@@ -70,8 +70,8 @@ const LOCAL_SQUARE_POSTS_KEY = 'betaclimb:square-posts';
 const LOCAL_AI_HISTORY_KEY = 'betaclimb:ai-history';
 const LOCAL_TRAINING_PLANS_KEY = 'betaclimb:training-plans';
 const MAX_AI_HISTORY_ITEMS = 24;
-const MAX_ROUTE_HISTORY_IMAGES = 6;
-const ROUTE_HISTORY_IMAGE_MAX_SIZE = 900;
+const ROUTE_STYLE_OPTIONS = ['平衡线', '力量线', '技术线', '指力线'];
+const CUSTOM_ROUTE_STYLE_VALUE = '__custom__';
 
 const fileToDataUrl = (file) =>
   new Promise((resolve, reject) => {
@@ -80,28 +80,6 @@ const fileToDataUrl = (file) =>
     reader.onload = () => resolve(String(reader.result || ''));
     reader.onerror = () => reject(new Error(`文件读取失败：${file.name}`));
     reader.readAsDataURL(file);
-  });
-
-const compressImageDataUrl = (imageUrl, maxSize = ROUTE_HISTORY_IMAGE_MAX_SIZE) =>
-  new Promise((resolve, reject) => {
-    if (!String(imageUrl || '').startsWith('data:image/')) {
-      resolve(imageUrl);
-      return;
-    }
-
-    const image = new Image();
-    image.onload = () => {
-      const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(image.width * scale));
-      canvas.height = Math.max(1, Math.round(image.height * scale));
-
-      const context = canvas.getContext('2d');
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/jpeg', 0.72));
-    };
-    image.onerror = () => reject(new Error('线路照片压缩失败。'));
-    image.src = imageUrl;
   });
 
 const readStoredGyms = (storageKey) => {
@@ -736,76 +714,27 @@ const buildMonthlyPersonalStats = (gyms, monthKey) => {
   };
 };
 
+const getRouteStyleLabel = (route) => String(route.style || route.routeStyle || '').trim();
+
+const getRouteStyleSelectValue = (route) => {
+  const style = getRouteStyleLabel(route);
+  if (!style) return '';
+  return ROUTE_STYLE_OPTIONS.includes(style) ? style : CUSTOM_ROUTE_STYLE_VALUE;
+};
+
 const getRouteStyleTags = (route) => {
+  const selectedStyle = getRouteStyleLabel(route);
+  if (selectedStyle) return [selectedStyle];
+
   const text = `${route.name || ''} ${route.notes || ''}`.toLowerCase();
   const tagRules = [
-    ['Slab', /slab|平衡|重心|脚法|脚点|balance|footwork/],
-    ['Overhang', /overhang|roof|仰角|大仰|屋檐|陡墙/],
-    ['Dyno', /dyno|动态|跳|协调|coordination/],
-    ['Crimp', /crimp|小点|小手点|抠点/],
-    ['Sloper', /sloper|圆包|摩擦/],
-    ['Pinch', /pinch|捏点/],
-    ['Power', /力量|锁定|引体|爆发|power/],
-    ['Endurance', /耐力|泵|pump|连续/],
+    ['平衡线', /slab|平衡|重心|脚法|脚点|balance|footwork/],
+    ['力量线', /overhang|roof|仰角|大仰|屋檐|陡墙|力量|锁定|引体|爆发|power/],
+    ['技术线', /dyno|动态|跳|协调|coordination|技术|technical|耐力|泵|pump|连续/],
+    ['指力线', /crimp|小点|小手点|抠点|指力|finger|pinch|捏点|sloper|圆包|摩擦/],
   ];
   const tags = tagRules.filter(([, pattern]) => pattern.test(text)).map(([tag]) => tag);
   return tags.length ? tags : ['未标注'];
-};
-
-const isAiReadableImageUrl = (imageUrl) => /^data:image\/|^https?:\/\//i.test(String(imageUrl || ''));
-
-const getRecentRouteImageInputs = (gyms, days = 30, limit = MAX_ROUTE_HISTORY_IMAGES) => {
-  const endDate = new Date();
-  const startDate = addDays(endDate, -days + 1);
-  const startKey = formatLocalDate(startDate);
-  const endKey = formatLocalDate(endDate);
-  const routeImages = [];
-
-  gyms.forEach((gym) => {
-    gym.routes.forEach((route) => {
-      const addedAt = getRouteAddedAt(route, gym);
-      const activityDate = route.sentAt || addedAt;
-      if (activityDate < startKey || activityDate > endKey || !isAiReadableImageUrl(route.imageUrl)) return;
-
-      routeImages.push({
-        imageRef: '',
-        imageUrl: route.imageUrl,
-        gymName: gym.name,
-        gymArea: gym.area,
-        routeName: route.name,
-        grade: route.grade?.trim().toUpperCase() || '未定级',
-        status: route.sentAt ? 'sent' : 'project',
-        activityDate,
-      });
-    });
-  });
-
-  return routeImages
-    .sort((routeA, routeB) => routeB.activityDate.localeCompare(routeA.activityDate))
-    .slice(0, limit)
-    .map((route, index) => ({
-      ...route,
-      imageRef: `route-image-${index + 1}`,
-    }));
-};
-
-const prepareRecentRouteImageInputs = async (gyms, days = 30) => {
-  const routeImages = getRecentRouteImageInputs(gyms, days);
-  const compressedEntries = await Promise.all(
-    routeImages.map(async (routeImage) => {
-      try {
-        return {
-          ...routeImage,
-          imageUrl: await compressImageDataUrl(routeImage.imageUrl),
-        };
-      } catch (error) {
-        console.warn('线路图片压缩失败，已跳过。', error);
-        return null;
-      }
-    }),
-  );
-
-  return compressedEntries.filter(Boolean);
 };
 
 const buildRecentRouteRecommendationContext = (gyms, days = 30) => {
@@ -813,11 +742,6 @@ const buildRecentRouteRecommendationContext = (gyms, days = 30) => {
   const startDate = addDays(endDate, -days + 1);
   const startKey = formatLocalDate(startDate);
   const endKey = formatLocalDate(endDate);
-  const routeImages = getRecentRouteImageInputs(gyms, days);
-  const routeImageRefs = routeImages.reduce((acc, routeImage) => {
-    acc[`${routeImage.gymName}:${routeImage.routeName}:${routeImage.activityDate}`] = routeImage.imageRef;
-    return acc;
-  }, {});
   const routes = [];
   const byGrade = {};
   const byStyle = {};
@@ -831,10 +755,7 @@ const buildRecentRouteRecommendationContext = (gyms, days = 30) => {
       const grade = route.grade?.trim().toUpperCase() || '未定级';
       const status = route.sentAt ? 'sent' : 'project';
       const styleTags = getRouteStyleTags(route);
-      const imageRef = routeImageRefs[`${gym.name}:${route.name}:${activityDate}`] || '';
       const routeSummary = {
-        imageRef,
-        hasImage: Boolean(imageRef),
         gymName: gym.name,
         gymArea: gym.area,
         routeName: route.name,
@@ -844,6 +765,7 @@ const buildRecentRouteRecommendationContext = (gyms, days = 30) => {
         sentAt: route.sentAt || '',
         addedAt,
         notes: route.notes ? route.notes.slice(0, 180) : '',
+        style: getRouteStyleLabel(route),
         styleTags,
       };
 
@@ -883,15 +805,6 @@ const buildRecentRouteRecommendationContext = (gyms, days = 30) => {
       .filter((route) => route.status === 'sent')
       .sort((routeA, routeB) => routeB.activityDate.localeCompare(routeA.activityDate))
       .slice(0, 12),
-    imageRoutes: routeImages.map((routeImage) => ({
-      imageRef: routeImage.imageRef,
-      gymName: routeImage.gymName,
-      gymArea: routeImage.gymArea,
-      routeName: routeImage.routeName,
-      grade: routeImage.grade,
-      status: routeImage.status,
-      activityDate: routeImage.activityDate,
-    })),
   };
 };
 
@@ -2171,6 +2084,7 @@ export default function App() {
       createdAt: new Date().toISOString().slice(0, 10),
       imageUrl,
       betaVideoUrl: '',
+      style: '',
       notes: '',
     };
 
@@ -2262,6 +2176,7 @@ export default function App() {
       routes: gym.routes.slice(0, 10).map((route) => ({
         name: route.name,
         grade: route.grade,
+        style: getRouteStyleLabel(route),
         sentAt: route.sentAt || '',
         createdAt: getRouteAddedAt(route, gym),
         notes: route.notes ? route.notes.slice(0, 240) : '',
@@ -2354,7 +2269,7 @@ export default function App() {
       ? bestProjects.map((route) => `${route.grade} ${route.routeName} @ ${route.gymName}\n成功率 ${Math.max(35, Math.min(82, recentWindow.successRate + 12))}%`)
       : ['V? 技术线\n成功率 60%', 'V? 舒适热身线\n成功率 75%'];
 
-    return `最近 30 天\n${need || '根据你的线路记录生成推荐。'}\n\n记录：${recentWindow.routeCount} 条线路 · 已过 ${recentWindow.sentCount} · 待挑战 ${recentWindow.projectCount}\n等级参考：${gradeText || '还没有足够等级记录'}\n\n今天推荐：\n${projectLines.join('\n\n')}\n\n建议补充：\n- Balance\n- Footwork\n\n下次记录：给线路加上墙型/动作类型备注，推荐会更准。`;
+    return `最近 30 天\n${need || '根据你的线路记录生成推荐。'}\n\n记录：${recentWindow.routeCount} 条线路 · 已过 ${recentWindow.sentCount} · 待挑战 ${recentWindow.projectCount}\n等级参考：${gradeText || '还没有足够等级记录'}\n\n今天推荐：\n${projectLines.join('\n\n')}\n\n建议补充：\n- 平衡\n- 脚法\n\n下次记录：给线路选择路线风格，推荐会更准。`;
   };
 
   const getFallbackAiRecommendation = (need, mode = aiMode) => {
@@ -2634,8 +2549,7 @@ export default function App() {
     setAiRecommendation(selectedMode.loading);
     setTrainingPlanDraft(null);
     const aiContext = getAiContext();
-    const routeImages = aiMode === 'route_history' ? await prepareRecentRouteImageInputs(gyms, 30) : [];
-    const requestNeed = need || '请根据我最近 30 天的线路记录和线路照片生成今天路线推荐。';
+    const requestNeed = need || '请根据我最近 30 天的线路记录生成今天路线推荐。';
 
     try {
       const response = await fetch('/api/ai-recommendation', {
@@ -2647,15 +2561,11 @@ export default function App() {
           need: requestNeed,
           mode: aiMode,
           context: aiContext,
-          routeImages,
         }),
       });
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        if (response.status === 413) {
-          throw new Error('线路照片数据太大，请减少最近记录图片或稍后重试。');
-        }
         throw new Error(result.error || 'AI 服务暂时不可用。');
       }
 
@@ -3390,7 +3300,7 @@ export default function App() {
                     <article className="ai-chat-pair pending">
                       <div className="chat-message user-message">
                         <span>你</span>
-                        <p>{aiNeed.trim() || '请根据我最近 30 天的线路记录和线路照片生成今天路线推荐。'}</p>
+                        <p>{aiNeed.trim() || '请根据我最近 30 天的线路记录生成今天路线推荐。'}</p>
                       </div>
                       <div className="chat-message assistant-message">
                         <span>{selectedAiMode.title}</span>
@@ -4141,7 +4051,9 @@ export default function App() {
                           <img src={route.imageUrl} alt={`${route.name} 线路照片`} />
                           <span className="route-card-meta">
                             <strong>{route.name}</strong>
-                            <small>{route.grade} · 添加于 {getRouteAddedAt(route, activeGym)}</small>
+                            <small>
+                              {route.grade} · {getRouteStyleLabel(route) || '未选风格'} · 添加于 {getRouteAddedAt(route, activeGym)}
+                            </small>
                           </span>
                           {route.isFavorite ? (
                             <span className="favorite-badge" aria-label="已收藏">
@@ -4179,7 +4091,7 @@ export default function App() {
                           <img src={route.imageUrl} alt={`${route.name} 线路照片`} />
                           <span className="route-card-meta">
                             <strong>{route.name}</strong>
-                            <small>{route.grade} · {route.sentAt}</small>
+                            <small>{route.grade} · {getRouteStyleLabel(route) || '未选风格'} · {route.sentAt}</small>
                           </span>
                           {route.isFavorite ? (
                             <span className="favorite-badge" aria-label="已收藏">
@@ -4270,6 +4182,45 @@ export default function App() {
                   onChange={(event) => updateRoute({ sentAt: event.target.value })}
                 />
               </label>
+
+              <label className="field">
+                <span>
+                  <Target size={16} />
+                  路线风格
+                </span>
+                <select
+                  value={getRouteStyleSelectValue(activeRoute)}
+                  disabled={!isEditing}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    updateRoute({ style: nextValue === CUSTOM_ROUTE_STYLE_VALUE ? '' : nextValue });
+                  }}
+                >
+                  <option value="">未选择</option>
+                  {ROUTE_STYLE_OPTIONS.map((style) => (
+                    <option key={style} value={style}>
+                      {style}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_ROUTE_STYLE_VALUE}>自定义</option>
+                </select>
+              </label>
+
+              {getRouteStyleSelectValue(activeRoute) === CUSTOM_ROUTE_STYLE_VALUE || (isEditing && !getRouteStyleLabel(activeRoute)) ? (
+                <label className="field">
+                  <span>
+                    <Pencil size={16} />
+                    自定义风格
+                  </span>
+                  <input
+                    type="text"
+                    value={ROUTE_STYLE_OPTIONS.includes(getRouteStyleLabel(activeRoute)) ? '' : getRouteStyleLabel(activeRoute)}
+                    disabled={!isEditing}
+                    placeholder="例如：动态协调线、耐力线、脚法线"
+                    onChange={(event) => updateRoute({ style: event.target.value })}
+                  />
+                </label>
+              ) : null}
 
               <label className="field">
                 <span>

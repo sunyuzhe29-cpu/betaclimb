@@ -1297,7 +1297,8 @@ h2 {
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.field select {
   width: 100%;
   border: 1px solid #d6cec0;
   border-radius: 8px;
@@ -1306,7 +1307,8 @@ h2 {
   outline: 0;
 }
 
-.field input {
+.field input,
+.field select {
   height: 42px;
   padding: 0 12px;
 }
@@ -1319,7 +1321,8 @@ h2 {
 }
 
 .field input:disabled,
-.field textarea:disabled {
+.field textarea:disabled,
+.field select:disabled {
   color: #4b5563;
   background: #f4efe6;
 }
