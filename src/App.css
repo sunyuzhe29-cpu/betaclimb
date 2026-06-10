@@ -1901,7 +1901,8 @@ h2 {
 
 .comment-compose textarea,
 .square-compose textarea,
-.ai-workspace textarea {
+.ai-workspace textarea,
+.ai-chat-composer textarea {
   width: 100%;
   min-height: 108px;
   padding: 11px 12px;
@@ -2044,6 +2045,103 @@ h2 {
   font-size: 13px;
   line-height: 1.45;
   font-weight: 800;
+}
+
+.ai-mode-card em {
+  grid-column: 2;
+  color: #b45309;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.ai-chat-page {
+  display: grid;
+  gap: 14px;
+}
+
+.ai-chat-thread {
+  min-height: 420px;
+  max-height: min(62svh, 680px);
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #d6cec0;
+  border-radius: 8px;
+  background: #fffaf0;
+}
+
+.ai-chat-pair {
+  display: grid;
+  gap: 10px;
+}
+
+.chat-message {
+  max-width: min(760px, 86%);
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+
+.chat-message span {
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.chat-message p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  font-weight: 800;
+  white-space: pre-wrap;
+}
+
+.user-message {
+  justify-self: end;
+  color: #fffaf0;
+  background: #1f2937;
+}
+
+.user-message span {
+  color: #fde68a;
+}
+
+.assistant-message {
+  justify-self: start;
+  color: #14532d;
+  border: 1px solid #bbf7d0;
+  background: #dcfce7;
+}
+
+.assistant-message span {
+  color: #166534;
+}
+
+.chat-empty {
+  min-height: 360px;
+}
+
+.ai-chat-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #d6cec0;
+  border-radius: 8px;
+  background: #fffaf0;
+}
+
+.ai-chat-composer textarea {
+  min-height: 74px;
+  max-height: 160px;
+}
+
+.chat-plan-panel {
+  background: #fffbeb;
 }
 
 .ai-console {
@@ -2573,6 +2671,19 @@ h2 {
 
   .ai-mode-grid {
     grid-template-columns: 1fr;
+  }
+
+  .ai-chat-thread {
+    min-height: 360px;
+    max-height: none;
+  }
+
+  .ai-chat-composer {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-message {
+    max-width: 94%;
   }
 
   .ai-history-list {

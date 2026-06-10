@@ -1172,7 +1172,7 @@ export default function App() {
   const [storePage, setStorePage] = useState('list');
   const [productAiAnswer, setProductAiAnswer] = useState('');
   const [isProductAiLoading, setIsProductAiLoading] = useState(false);
-  const [aiPage, setAiPage] = useState('chat');
+  const [aiPage, setAiPage] = useState('home');
   const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
   const [gymSearchQuery, setGymSearchQuery] = useState('');
   const [publicGyms, setPublicGyms] = useState([]);
@@ -1218,7 +1218,7 @@ export default function App() {
     setIsEditingGym(false);
     setAiAnalysis('');
     setStorePage('list');
-    setAiPage('chat');
+    setAiPage('home');
   };
 
   useEffect(() => {
@@ -1697,6 +1697,11 @@ export default function App() {
   const activeSquarePost = sortedSquarePosts.find((post) => post.id === activeSquarePostId) || null;
   const activeDiscussionRoute = squareRoutes.find((route) => route.id === activeDiscussionRouteId) || null;
   const activeProduct = PRODUCT_CATALOG.find((product) => product.id === activeProductId) || PRODUCT_CATALOG[0];
+  const selectedAiMode = AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0];
+  const activeAiConversationEntries = useMemo(
+    () => aiHistory.filter((entry) => entry.mode === aiMode).slice().reverse(),
+    [aiHistory, aiMode],
+  );
   const activePublicRouteSections = activePublicRouteGroup
     ? [
         {
@@ -3148,7 +3153,7 @@ export default function App() {
           {aiPage === 'history' ? (
             <>
               <section className="view-header">
-                <button className="ghost-btn" type="button" onClick={() => setAiPage('chat')}>
+                <button className="ghost-btn" type="button" onClick={() => setAiPage('home')}>
                   <ArrowLeft size={18} />
                   AI 助手
                 </button>
@@ -3208,221 +3213,244 @@ export default function App() {
                 )}
               </section>
             </>
-          ) : (
-          <section className="ai-workspace">
-            <div className="ai-hero">
-              <div className="ai-hero-copy">
-                <p className="eyebrow">AI 攀岩助手</p>
-                <h1>今天聊点攀岩的。</h1>
-                <p>
-                  可以问线路 beta、装备选择、岩馆安排，也可以单独生成一次训练计划。
-                </p>
-                <span className="ai-mascot-label">
-                  今日岩点：{aiMascot.name} · {aiMascot.description}
-                </span>
-                <button className="ghost-btn ai-history-entry" type="button" onClick={() => setAiPage('history')}>
-                  <ClipboardList size={17} />
-                  历史记录
-                  {aiHistory.length ? <small>{aiHistory.length}</small> : null}
+          ) : aiPage === 'chat' ? (
+            <>
+              <section className="view-header">
+                <button className="ghost-btn" type="button" onClick={() => setAiPage('home')}>
+                  <ArrowLeft size={18} />
+                  AI 助手
                 </button>
-              </div>
-              <img src={aiMascot.image} alt={`BetaClimb AI ${aiMascot.description}形象`} />
-            </div>
+                <div>
+                  <p className="eyebrow">AI 模块</p>
+                  <h1>{selectedAiMode.title}</h1>
+                </div>
+                <button className="ghost-btn" type="button" onClick={() => setAiPage('history')}>
+                  <ClipboardList size={17} />
+                  历史
+                </button>
+              </section>
 
-            <div className="ai-mode-grid" role="tablist" aria-label="AI 助手类型">
-              {AI_ASSISTANT_MODES.map((mode) => {
-                const Icon = mode.icon;
-
-                return (
-                  <button
-                    className={`ai-mode-card ${aiMode === mode.id ? 'active' : ''}`}
-                    key={mode.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={aiMode === mode.id}
-                    onClick={() => {
-                      setAiMode(mode.id);
-                    }}
-                  >
-                    <span className="ai-mode-icon">
-                      <Icon size={18} />
-                    </span>
-                    <strong>{mode.title}</strong>
-                    <small>{mode.description}</small>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="ai-console">
-              <div className="ai-prompt-panel">
-                <label className="field">
-                  <span>
-                    <Target size={16} />
-                    {aiMode === 'route_history' ? '补充目标' : '你的需求'}
-                  </span>
-                  <textarea
-                    value={aiNeed}
-                    placeholder={(AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0]).placeholder}
-                    onChange={(event) => setAiNeed(event.target.value)}
-                  />
-                </label>
-                <div className="ai-chip-row" aria-label="可以咨询的主题">
-                  <span>
-                    <MessageCircle size={14} />
-                    线路 beta
-                  </span>
-                  <span>
-                    <Package size={14} />
-                    装备
-                  </span>
-                  <span>
-                    <Building2 size={14} />
-                    岩馆
-                  </span>
-                  <span>
-                    <Dumbbell size={14} />
-                    训练
-                  </span>
-                  {aiMode === 'route_history' ? (
-                    <span>
-                      <Target size={14} />
-                      记录读图
-                    </span>
+              <section className="ai-chat-page" aria-label={`${selectedAiMode.title}聊天`}>
+                <div className="ai-chat-thread" aria-live="polite">
+                  {activeAiConversationEntries.length ? (
+                    activeAiConversationEntries.map((entry) => (
+                      <article className="ai-chat-pair" key={entry.id}>
+                        <div className="chat-message user-message">
+                          <span>你</span>
+                          <p>{entry.need}</p>
+                        </div>
+                        <div className="chat-message assistant-message">
+                          <span>{selectedAiMode.title}</span>
+                          <pre className="ai-result">{entry.recommendation}</pre>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <div className="ai-empty-state chat-empty">
+                      <Bot size={22} />
+                      <strong>{selectedAiMode.title}</strong>
+                      <p>{selectedAiMode.description}</p>
+                    </div>
+                  )}
+                  {aiRecommendation && !activeAiConversationEntries.length && !isAiLoading ? (
+                    <div className="chat-message assistant-message">
+                      <span>{selectedAiMode.title}</span>
+                      <p>{aiRecommendation}</p>
+                    </div>
+                  ) : null}
+                  {isAiLoading ? (
+                    <article className="ai-chat-pair pending">
+                      <div className="chat-message user-message">
+                        <span>你</span>
+                        <p>{aiNeed.trim() || '请根据我最近 30 天的线路记录和线路照片生成今天路线推荐。'}</p>
+                      </div>
+                      <div className="chat-message assistant-message">
+                        <span>{selectedAiMode.title}</span>
+                        <p>{selectedAiMode.loading}</p>
+                      </div>
+                    </article>
                   ) : null}
                 </div>
-                <button className="ai-btn ai-submit" type="button" onClick={handleAiRecommendation} disabled={isAiLoading}>
-                  <Sparkles size={18} />
-                  {isAiLoading
-                    ? (AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0]).loading
-                    : (AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0]).action}
-                </button>
-              </div>
-              <div className="ai-result-panel" aria-live="polite">
-                {aiRecommendation ? (
-                  <pre className="ai-result">{aiRecommendation}</pre>
-                ) : (
-                  <div className="ai-empty-state">
-                    <Bot size={22} />
-                    <strong>把问题丢过来</strong>
-                    <p>我会结合你的本地记录和公开线路数据给出回答。</p>
-                  </div>
-                )}
-              </div>
-            </div>
 
-            {trainingPlanDraft ? (
-              <section className="training-plan-panel" aria-label="长期训练计划草案">
-                <div className="training-plan-heading">
-                  <div>
-                    <p className="eyebrow">计划草案</p>
-                    <h2>调整后接受到日历</h2>
-                  </div>
-                  <button className="primary-btn compact" type="button" onClick={acceptTrainingPlanDraft}>
-                    <Save size={17} />
-                    接受计划
-                  </button>
-                </div>
+                {trainingPlanDraft && aiMode === 'training' ? (
+                  <section className="training-plan-panel chat-plan-panel" aria-label="长期训练计划草案">
+                    <div className="training-plan-heading">
+                      <div>
+                        <p className="eyebrow">计划草案</p>
+                        <h2>调整后接受到日历</h2>
+                      </div>
+                      <button className="primary-btn compact" type="button" onClick={acceptTrainingPlanDraft}>
+                        <Save size={17} />
+                        接受计划
+                      </button>
+                    </div>
 
-                <div className="plan-settings-grid">
-                  <label className="field">
-                    <span>计划名称</span>
-                    <input
-                      value={trainingPlanDraft.title}
-                      onChange={(event) => updateTrainingPlanDraft({ title: event.target.value })}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>开始日期</span>
-                    <input
-                      type="date"
-                      value={trainingPlanDraft.startDate}
-                      onChange={(event) => updateTrainingPlanDraft({ startDate: event.target.value })}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>持续周数</span>
-                    <input
-                      type="number"
-                      min="2"
-                      max="16"
-                      value={trainingPlanDraft.durationWeeks}
-                      onChange={(event) => updateTrainingPlanDraft({ durationWeeks: clampNumber(event.target.value, 2, 16, 6) })}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>每周次数</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="5"
-                      value={trainingPlanDraft.weeklyFrequency}
-                      onChange={(event) => syncDraftSessionCount(event.target.value)}
-                    />
-                  </label>
-                </div>
-
-                <div className="training-session-list">
-                  {trainingPlanDraft.sessions.map((session, index) => (
-                    <div className="training-session-row" key={`${session.weekday}-${index}`}>
-                      <strong>第 {index + 1} 次</strong>
-                      <select
-                        value={session.weekday}
-                        onChange={(event) => updateTrainingPlanSession(index, { weekday: Number(event.target.value) })}
-                        aria-label={`第 ${index + 1} 次训练日`}
-                      >
-                        {TRAINING_WEEKDAYS.map((weekday) => (
-                          <option key={weekday.value} value={weekday.value}>
-                            {weekday.label}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        value={session.focus}
-                        onChange={(event) => updateTrainingPlanSession(index, { focus: event.target.value })}
-                        aria-label={`第 ${index + 1} 次训练重点`}
-                      />
-                      <label>
-                        <span>强度</span>
+                    <div className="plan-settings-grid">
+                      <label className="field">
+                        <span>计划名称</span>
                         <input
-                          type="number"
-                          min="3"
-                          max="9"
-                          value={session.intensity}
-                          onChange={(event) => updateTrainingPlanSession(index, { intensity: clampNumber(event.target.value, 3, 9, 7) })}
+                          value={trainingPlanDraft.title}
+                          onChange={(event) => updateTrainingPlanDraft({ title: event.target.value })}
                         />
                       </label>
-                      <label>
-                        <span>分钟</span>
+                      <label className="field">
+                        <span>开始日期</span>
+                        <input
+                          type="date"
+                          value={trainingPlanDraft.startDate}
+                          onChange={(event) => updateTrainingPlanDraft({ startDate: event.target.value })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>持续周数</span>
                         <input
                           type="number"
-                          min="45"
-                          max="150"
-                          step="5"
-                          value={session.durationMinutes}
-                          onChange={(event) =>
-                            updateTrainingPlanSession(index, { durationMinutes: clampNumber(event.target.value, 45, 150, 90) })
-                          }
+                          min="2"
+                          max="16"
+                          value={trainingPlanDraft.durationWeeks}
+                          onChange={(event) => updateTrainingPlanDraft({ durationWeeks: clampNumber(event.target.value, 2, 16, 6) })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>每周次数</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="5"
+                          value={trainingPlanDraft.weeklyFrequency}
+                          onChange={(event) => syncDraftSessionCount(event.target.value)}
                         />
                       </label>
                     </div>
-                  ))}
+
+                    <div className="training-session-list">
+                      {trainingPlanDraft.sessions.map((session, index) => (
+                        <div className="training-session-row" key={`${session.weekday}-${index}`}>
+                          <strong>第 {index + 1} 次</strong>
+                          <select
+                            value={session.weekday}
+                            onChange={(event) => updateTrainingPlanSession(index, { weekday: Number(event.target.value) })}
+                            aria-label={`第 ${index + 1} 次训练日`}
+                          >
+                            {TRAINING_WEEKDAYS.map((weekday) => (
+                              <option key={weekday.value} value={weekday.value}>
+                                {weekday.label}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            value={session.focus}
+                            onChange={(event) => updateTrainingPlanSession(index, { focus: event.target.value })}
+                            aria-label={`第 ${index + 1} 次训练重点`}
+                          />
+                          <label>
+                            <span>强度</span>
+                            <input
+                              type="number"
+                              min="3"
+                              max="9"
+                              value={session.intensity}
+                              onChange={(event) => updateTrainingPlanSession(index, { intensity: clampNumber(event.target.value, 3, 9, 7) })}
+                            />
+                          </label>
+                          <label>
+                            <span>分钟</span>
+                            <input
+                              type="number"
+                              min="45"
+                              max="150"
+                              step="5"
+                              value={session.durationMinutes}
+                              onChange={(event) =>
+                                updateTrainingPlanSession(index, { durationMinutes: clampNumber(event.target.value, 45, 150, 90) })
+                              }
+                            />
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+
+                    <label className="field">
+                      <span>
+                        <CalendarClock size={16} />
+                        打卡提示
+                      </span>
+                      <input
+                        value={trainingPlanDraft.reminder}
+                        onChange={(event) => updateTrainingPlanDraft({ reminder: event.target.value })}
+                      />
+                    </label>
+                  </section>
+                ) : null}
+
+                <div className="ai-chat-composer">
+                  <label className="field">
+                    <span>
+                      <Target size={16} />
+                      {aiMode === 'route_history' ? '补充目标' : '你的问题'}
+                    </span>
+                    <textarea
+                      value={aiNeed}
+                      placeholder={selectedAiMode.placeholder}
+                      onChange={(event) => setAiNeed(event.target.value)}
+                    />
+                  </label>
+                  <button className="ai-btn ai-submit" type="button" onClick={handleAiRecommendation} disabled={isAiLoading}>
+                    <Send size={18} />
+                    {isAiLoading ? selectedAiMode.loading : selectedAiMode.action}
+                  </button>
                 </div>
-
-                <label className="field">
-                  <span>
-                    <CalendarClock size={16} />
-                    打卡提示
-                  </span>
-                  <input
-                    value={trainingPlanDraft.reminder}
-                    onChange={(event) => updateTrainingPlanDraft({ reminder: event.target.value })}
-                  />
-                </label>
               </section>
-            ) : null}
+            </>
+          ) : (
+            <section className="ai-workspace">
+              <div className="ai-hero">
+                <div className="ai-hero-copy">
+                  <p className="eyebrow">AI 攀岩助手</p>
+                  <h1>选择一个模块</h1>
+                  <p>
+                    每个模块都有独立聊天页，可以一问一答地继续咨询。
+                  </p>
+                  <span className="ai-mascot-label">
+                    今日岩点：{aiMascot.name} · {aiMascot.description}
+                  </span>
+                  <button className="ghost-btn ai-history-entry" type="button" onClick={() => setAiPage('history')}>
+                    <ClipboardList size={17} />
+                    历史记录
+                    {aiHistory.length ? <small>{aiHistory.length}</small> : null}
+                  </button>
+                </div>
+                <img src={aiMascot.image} alt={`BetaClimb AI ${aiMascot.description}形象`} />
+              </div>
 
-          </section>
+              <div className="ai-mode-grid" aria-label="AI 助手模块">
+                {AI_ASSISTANT_MODES.map((mode) => {
+                  const Icon = mode.icon;
+                  const modeHistoryCount = aiHistory.filter((entry) => entry.mode === mode.id).length;
+
+                  return (
+                    <button
+                      className="ai-mode-card"
+                      key={mode.id}
+                      type="button"
+                      onClick={() => {
+                        setAiMode(mode.id);
+                        setAiNeed('');
+                        setAiRecommendation('');
+                        setAiPage('chat');
+                      }}
+                    >
+                      <span className="ai-mode-icon">
+                        <Icon size={18} />
+                      </span>
+                      <strong>{mode.title}</strong>
+                      <small>{mode.description}</small>
+                      <em>{modeHistoryCount ? `${modeHistoryCount} 条记录` : '开始聊天'}</em>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
           )}
         </main>
       ) : null}
