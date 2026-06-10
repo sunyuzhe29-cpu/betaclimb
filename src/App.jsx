@@ -383,6 +383,61 @@ const applyRoutePatchesToGyms = (gyms, routePatches) => {
   }));
 };
 
+const mergeOwnPublicRoutesIntoGyms = (gyms, ownPublicRoutes) => {
+  const missingRoutes = ownPublicRoutes.filter((publicRoute) => {
+    const routeId = String(publicRoute.route_id || '');
+    if (!routeId) return false;
+
+    return !gyms.some((gym) => (gym.routes || []).some((route) => String(route.id) === routeId));
+  });
+
+  if (!missingRoutes.length) return gyms;
+
+  return missingRoutes.reduce((nextGyms, publicRoute) => {
+    const gymId = String(publicRoute.gym_id || publicRoute.gym_name || 'public-gym');
+    const createdDate = String(publicRoute.created_at || new Date().toISOString()).slice(0, 10);
+    const route = {
+      id: String(publicRoute.route_id),
+      name: publicRoute.route_name || '未命名线路',
+      grade: publicRoute.grade || 'V?',
+      sentAt: publicRoute.sent_at || '',
+      createdAt: createdDate,
+      imageUrl: publicRoute.route_image_url || gymImage('#475569', '#facc15', publicRoute.route_name || '线路'),
+      betaVideoUrl: publicRoute.beta_video_url || '',
+      style: '',
+      notes: publicRoute.notes || '',
+      publicNote: publicRoute.discussion_prompt || '',
+      isPublic: true,
+      publishedAt: publicRoute.created_at || new Date().toISOString(),
+    };
+
+    const existingGym = nextGyms.find((gym) => String(gym.id) === gymId);
+    if (existingGym) {
+      return nextGyms.map((gym) =>
+        String(gym.id) === gymId
+          ? {
+              ...gym,
+              lastVisit: route.sentAt || route.createdAt || gym.lastVisit,
+              routes: [route, ...(gym.routes || [])],
+            }
+          : gym,
+      );
+    }
+
+    return [
+      {
+        id: gymId,
+        name: publicRoute.gym_name || '未命名岩馆',
+        area: publicRoute.gym_area || '未填写',
+        imageUrl: gymImage('#475569', '#facc15', publicRoute.gym_name || '岩馆'),
+        lastVisit: route.sentAt || route.createdAt,
+        routes: [route],
+      },
+      ...nextGyms,
+    ];
+  }, gyms);
+};
+
 const getSentEntries = (gyms) =>
   gyms.flatMap((gym) =>
     gym.routes
@@ -1683,6 +1738,25 @@ export default function App() {
         ...nextRemoteRoutes,
         ...localPublicRoutes.filter((route) => !remoteRouteKeys.has(`${route.user_id}:${route.route_id}`)),
       ];
+
+      if (user) {
+        const ownRemoteRoutes = mergedRoutes.filter((route) => String(route.user_id || '') === user.id);
+        if (ownRemoteRoutes.length) {
+          setGyms((currentGyms) => {
+            const nextGyms = mergeOwnPublicRoutesIntoGyms(currentGyms, ownRemoteRoutes);
+            if (nextGyms === currentGyms) return currentGyms;
+
+            writeStoredGyms(storageKey, nextGyms);
+            saveCloudGyms(user.id, nextGyms).then(({ error: saveError }) => {
+              if (saveError) {
+                console.error('回填公开线路到个人数据失败', saveError);
+              }
+            });
+            return nextGyms;
+          });
+        }
+      }
+
       setPublicRoutes(mergedRoutes);
       setPublicDataStatus({
         state: syncedRoutes.length ? 'synced' : 'ready',
@@ -1700,7 +1774,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [gyms, user]);
+  }, [gyms, storageKey, user]);
 
   useEffect(() => {
     let isActive = true;
