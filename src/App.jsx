@@ -135,6 +135,43 @@ const readStoredGymsUpdatedAt = (storageKey) => {
   }
 };
 
+const getRoutePatchKey = (gymId, routeId) => `${gymId}::${routeId}`;
+
+const readStoredRoutePatches = (storageKey) => {
+  try {
+    const storedValue = window.localStorage.getItem(`${storageKey}:route-patches`);
+    if (!storedValue) return {};
+
+    const parsedValue = JSON.parse(storedValue);
+    return parsedValue && typeof parsedValue === 'object' && !Array.isArray(parsedValue) ? parsedValue : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeStoredRoutePatch = (storageKey, gymId, routeId, updates) => {
+  try {
+    const patchKey = getRoutePatchKey(gymId, routeId);
+    const currentPatches = readStoredRoutePatches(storageKey);
+    const currentPatch = currentPatches[patchKey] || {};
+    window.localStorage.setItem(
+      `${storageKey}:route-patches`,
+      JSON.stringify({
+        ...currentPatches,
+        [patchKey]: {
+          ...currentPatch,
+          ...updates,
+          updatedAt: new Date().toISOString(),
+        },
+      }),
+    );
+    return true;
+  } catch (error) {
+    console.warn('路线字段补丁缓存失败。', error);
+    return false;
+  }
+};
+
 const writeStoredGyms = (storageKey, gyms, updatedAt = new Date().toISOString()) => {
   try {
     window.localStorage.setItem(storageKey, JSON.stringify(gyms));
@@ -327,6 +364,23 @@ const mergeGymsByLocalProgress = (cloudGyms = [], localGyms = []) => {
   });
 
   return [...localGymMap.values(), ...mergedGyms];
+};
+
+const applyRoutePatchesToGyms = (gyms, routePatches) => {
+  const patchEntries = Object.entries(routePatches || {});
+  if (!patchEntries.length) return gyms;
+
+  const patchesByKey = new Map(patchEntries);
+
+  return gyms.map((gym) => ({
+    ...gym,
+    routes: Array.isArray(gym.routes)
+      ? gym.routes.map((route) => {
+          const patch = patchesByKey.get(getRoutePatchKey(gym.id, route.id));
+          return patch ? { ...route, ...patch } : route;
+        })
+      : [],
+  }));
 };
 
 const getSentEntries = (gyms) =>
@@ -1340,10 +1394,13 @@ export default function App() {
       const localGyms = readStoredGyms(storageKey);
       const guestGyms = user ? readStoredGyms(GUEST_STORAGE_KEY) : [];
       const fallbackGyms = localGyms.length ? localGyms : guestGyms;
+      const routePatches = readStoredRoutePatches(storageKey);
 
       if (!user || !supabase) {
         if (!isActive) return;
-        setGyms(localGyms);
+        const patchedLocalGyms = applyRoutePatchesToGyms(localGyms, routePatches);
+        setGyms(patchedLocalGyms);
+        writeStoredGyms(storageKey, patchedLocalGyms);
         setLoadedStorageKey(storageKey);
         setIsCloudStorageReady(false);
         return;
@@ -1376,11 +1433,15 @@ export default function App() {
       const nextGyms = shouldPreferLocalFallback
         ? mergeGymsByLocalProgress(cloudGyms || [], fallbackGyms)
         : cloudGyms || fallbackGyms;
-      setGyms(nextGyms);
-      writeStoredGyms(storageKey, nextGyms, shouldPreferLocalFallback ? new Date().toISOString() : cloudUpdatedAt || new Date().toISOString());
+      const patchedGyms = applyRoutePatchesToGyms(nextGyms, routePatches);
+      const hasRoutePatches = Object.keys(routePatches).length > 0;
+      const nextUpdatedAt =
+        shouldPreferLocalFallback || hasRoutePatches ? new Date().toISOString() : cloudUpdatedAt || new Date().toISOString();
+      setGyms(patchedGyms);
+      writeStoredGyms(storageKey, patchedGyms, nextUpdatedAt);
 
-      if (shouldPreferLocalFallback) {
-        const { error: saveError } = await saveCloudGyms(user.id, nextGyms);
+      if (shouldPreferLocalFallback || hasRoutePatches) {
+        const { error: saveError } = await saveCloudGyms(user.id, patchedGyms);
         if (saveError) {
           console.error('初始化云端攀岩数据失败', saveError);
         }
@@ -1946,8 +2007,10 @@ export default function App() {
   const updateRoute = (updates) => {
     if (!activeGym || !activeRoute) return;
 
-    setGyms((currentGyms) =>
-      currentGyms.map((gym) =>
+    writeStoredRoutePatch(storageKey, activeGym.id, activeRoute.id, updates);
+
+    setGyms((currentGyms) => {
+      const nextGyms = currentGyms.map((gym) =>
         gym.id === activeGym.id
           ? {
               ...gym,
@@ -1956,8 +2019,20 @@ export default function App() {
               ),
             }
           : gym,
-      ),
-    );
+      );
+
+      writeStoredGyms(storageKey, nextGyms);
+
+      if (user && isCloudStorageReady) {
+        saveCloudGyms(user.id, nextGyms).then(({ error }) => {
+          if (error) {
+            console.error('保存云端攀岩数据失败', error);
+          }
+        });
+      }
+
+      return nextGyms;
+    });
   };
 
   const toggleFavoriteRoute = () => {
