@@ -1106,6 +1106,7 @@ const getRecentRouteEntries = (gyms, limit = 12) =>
         activityDate: route.sentAt || getRouteAddedAt(route, gym),
         status: route.sentAt ? 'sent' : 'project',
         style: getRouteStyleLabel(route),
+        imageUrl: route.imageUrl,
       })),
     )
     .sort(
@@ -1402,6 +1403,7 @@ export default function App() {
   const [isProductAiLoading, setIsProductAiLoading] = useState(false);
   const [aiPage, setAiPage] = useState('home');
   const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
+  const [isRecentRoutesOpen, setIsRecentRoutesOpen] = useState(false);
   const [gymSearchQuery, setGymSearchQuery] = useState('');
   const [publicGyms, setPublicGyms] = useState([]);
   const [publicRoutes, setPublicRoutes] = useState([]);
@@ -1442,6 +1444,7 @@ export default function App() {
     setActivePublicGrade('');
     setActivePublicRouteGroupId('');
     setIsFavoritesOpen(false);
+    setIsRecentRoutesOpen(false);
     setIsEditing(false);
     setIsEditingGym(false);
     setAiAnalysis('');
@@ -2013,6 +2016,7 @@ export default function App() {
     setActiveGymId(route.gymId);
     setActiveRouteId(route.routeId);
     setIsFavoritesOpen(false);
+    setIsRecentRoutesOpen(false);
     setIsEditing(false);
     setIsEditingGym(false);
     setAiAnalysis('');
@@ -2023,6 +2027,7 @@ export default function App() {
     setActiveGymId(route.gymId);
     setActiveRouteId(route.routeId);
     setIsFavoritesOpen(false);
+    setIsRecentRoutesOpen(false);
     setIsEditing(false);
     setIsEditingGym(false);
     setAiAnalysis('');
@@ -2032,6 +2037,7 @@ export default function App() {
     setActiveGymId(gymId);
     setActiveRouteId('');
     setIsFavoritesOpen(false);
+    setIsRecentRoutesOpen(false);
     setIsEditing(false);
     setIsEditingGym(false);
     setAiAnalysis('');
@@ -2059,6 +2065,7 @@ export default function App() {
   const selectRoute = (routeId) => {
     setActiveRouteId(routeId);
     setIsFavoritesOpen(false);
+    setIsRecentRoutesOpen(false);
     setIsEditing(false);
     setAiAnalysis('');
   };
@@ -3914,7 +3921,52 @@ export default function App() {
         </main>
       ) : null}
 
-      {activeView === 'personal' && !activeGym && !isFavoritesOpen ? (
+      {activeView === 'personal' && !activeGym && isRecentRoutesOpen ? (
+        <main className="home-view">
+          <section className="view-header">
+            <button className="ghost-btn" type="button" onClick={() => setIsRecentRoutesOpen(false)}>
+              <ArrowLeft size={18} />
+              我的
+            </button>
+            <div>
+              <p className="eyebrow">最近线路</p>
+              <h1>线路记录</h1>
+            </div>
+            <span className="favorite-total">
+              <ClipboardList size={17} />
+              {recentRoutes.length} 条
+            </span>
+          </section>
+
+          {recentRoutes.length ? (
+            <section className="favorite-route-grid" aria-label="最近线路">
+              {recentRoutes.map((route) => (
+                <button
+                  className="route-card favorite-route-card"
+                  key={`${route.gymId}-${route.routeId}`}
+                  type="button"
+                  onClick={() => openChallengeRoute(route)}
+                >
+                  <img src={route.imageUrl} alt={`${route.routeName} 线路照片`} />
+                  <span className="route-card-meta">
+                    <strong>{route.routeName}</strong>
+                    <small>
+                      {route.grade} · {route.gymName} · {route.status === 'sent' ? `过线于 ${route.sentAt}` : `添加于 ${route.addedAt}`}
+                    </small>
+                  </span>
+                </button>
+              ))}
+            </section>
+          ) : (
+            <div className="empty-state">
+              <strong>还没有线路记录</strong>
+              <span>进入岩馆添加线路后，会出现在这里。</span>
+            </div>
+          )}
+        </main>
+      ) : null}
+
+      {activeView === 'personal' && !activeGym && !isFavoritesOpen && !isRecentRoutesOpen ? (
         <main className="home-view">
           <section className="intro-band">
             <div>
@@ -4293,24 +4345,15 @@ export default function App() {
                   <small>{recentRoutes.length} 条</small>
                 </div>
                 {recentRoutes.length ? (
-                  <div className="challenge-route-list">
-                    {recentRoutes.map((route) => (
-                      <button
-                        className="challenge-route"
-                        key={`recent-${route.gymId}-${route.routeId}`}
-                        type="button"
-                        onClick={() => openChallengeRoute(route)}
-                      >
-                        <span>
-                          <b>{route.routeName}</b>
-                          <small>
-                            {route.gymName} · {route.style || '未选风格'} · {route.activityDate}
-                          </small>
-                        </span>
-                        <em>{route.status === 'sent' ? `已过 ${route.grade}` : route.grade}</em>
-                      </button>
-                    ))}
-                  </div>
+                  <button className="challenge-route" type="button" onClick={() => setIsRecentRoutesOpen(true)}>
+                    <span>
+                      <b>{recentRoutes[0].routeName}</b>
+                      <small>
+                        最新：{recentRoutes[0].gymName} · {recentRoutes[0].style || '未选风格'} · {recentRoutes[0].activityDate}
+                      </small>
+                    </span>
+                    <ChevronRight size={20} />
+                  </button>
                 ) : (
                   <p className="empty-copy">还没有添加线路。</p>
                 )}
