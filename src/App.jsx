@@ -795,6 +795,10 @@ const buildRecentRouteRecommendationContext = (gyms, days = 30) => {
     successRate: routes.length ? Math.round((sentCount / routes.length) * 100) : 0,
     byGrade: Object.values(byGrade).sort((gradeA, gradeB) => gradeA.grade.localeCompare(gradeB.grade, 'zh-CN')),
     byStyle: Object.values(byStyle)
+      .map((style) => ({
+        ...style,
+        successRate: style.total ? Math.round((style.sent / style.total) * 100) : 0,
+      }))
       .sort((styleA, styleB) => styleB.total - styleA.total || styleA.style.localeCompare(styleB.style, 'zh-CN'))
       .slice(0, 8),
     recentProjects: routes
@@ -2226,20 +2230,44 @@ export default function App() {
       ? structuredRecommendation.recommendations.slice(0, 3)
       : [];
     const summary = structuredRecommendation.summary || {};
+    const styleStats = Array.isArray(structuredRecommendation.styleStats)
+      ? structuredRecommendation.styleStats.slice(0, 6)
+      : [];
     const skillGaps = Array.isArray(structuredRecommendation.skillGaps)
       ? structuredRecommendation.skillGaps.filter(Boolean).slice(0, 4)
       : [];
+    const localStyleStats = buildRecentRouteRecommendationContext(gyms, 30).byStyle;
+    const visibleStyleStats = styleStats.length
+      ? styleStats
+      : localStyleStats.map((style) => ({
+          style: style.style,
+          routeCount: style.total,
+          sentCount: style.sent,
+          projectCount: style.project,
+          successRate: style.successRate,
+        }));
     const lines = [
       structuredRecommendation.windowLabel || '最近 30 天',
       structuredRecommendation.headline || summary.primaryPattern || '根据最近记录生成路线推荐。',
       '',
-      `记录：${summary.routeCount ?? '?'} 条线路 · 已过 ${summary.sentCount ?? '?'} · 待挑战 ${summary.projectCount ?? '?'}`,
+      `记录：${summary.routeCount ?? '?'} 条线路 · 已过 ${summary.sentCount ?? '?'} · 待挑战 ${summary.projectCount ?? '?'} · 总成功率 ${
+        summary.overallSuccessRate ?? '?'
+      }%`,
+      '',
+      '风格统计：',
+      ...(visibleStyleStats.length
+        ? visibleStyleStats.flatMap((style) => [
+            `${style.style || '未标注'}：${style.routeCount ?? style.total ?? 0} 条 · 已过 ${style.sentCount ?? style.sent ?? 0} · 待挑战 ${
+              style.projectCount ?? style.project ?? 0
+            } · 成功率 ${style.successRate ?? 0}%`,
+            style.note ? `小结：${style.note}` : '',
+          ])
+        : ['还没有足够的路线风格记录。']),
       '',
       '今天推荐：',
       ...(recommendations.length
         ? recommendations.flatMap((item) => [
             `${item.grade || ''} ${item.style || item.label || '推荐线路'}${item.label && item.style ? ` · ${item.label}` : ''}`.trim(),
-            `成功率 ${item.successRate ?? '?'}%`,
             item.reason ? `原因：${item.reason}` : '',
             item.tryPlan ? `尝试：${item.tryPlan}` : '',
             '',
@@ -2265,11 +2293,16 @@ export default function App() {
       .slice(0, 4)
       .map((item) => `${item.grade} ${item.sent}/${item.total}`)
       .join('、');
+    const styleText = recentWindow.byStyle.length
+      ? recentWindow.byStyle
+          .map((item) => `${item.style}：${item.total} 条 · 已过 ${item.sent} · 待挑战 ${item.project} · 成功率 ${item.successRate}%`)
+          .join('\n')
+      : '还没有足够的路线风格记录。';
     const projectLines = bestProjects.length
-      ? bestProjects.map((route) => `${route.grade} ${route.routeName} @ ${route.gymName}\n成功率 ${Math.max(35, Math.min(82, recentWindow.successRate + 12))}%`)
-      : ['V? 技术线\n成功率 60%', 'V? 舒适热身线\n成功率 75%'];
+      ? bestProjects.map((route) => `${route.grade} ${route.style || route.styleTags?.[0] || ''} · ${route.routeName} @ ${route.gymName}`.trim())
+      : ['V? 技术线 · 先补一条可控项目', 'V? 平衡线 · 低强度练脚法'];
 
-    return `最近 30 天\n${need || '根据你的线路记录生成推荐。'}\n\n记录：${recentWindow.routeCount} 条线路 · 已过 ${recentWindow.sentCount} · 待挑战 ${recentWindow.projectCount}\n等级参考：${gradeText || '还没有足够等级记录'}\n\n今天推荐：\n${projectLines.join('\n\n')}\n\n建议补充：\n- 平衡\n- 脚法\n\n下次记录：给线路选择路线风格，推荐会更准。`;
+    return `最近 30 天\n${need || '根据你的线路记录生成推荐。'}\n\n记录：${recentWindow.routeCount} 条线路 · 已过 ${recentWindow.sentCount} · 待挑战 ${recentWindow.projectCount} · 总成功率 ${recentWindow.successRate}%\n等级参考：${gradeText || '还没有足够等级记录'}\n\n风格统计：\n${styleText}\n\n今天推荐：\n${projectLines.join('\n\n')}\n\n建议补充：\n- 平衡\n- 脚法\n\n下次记录：给线路选择路线风格，推荐会更准。`;
   };
 
   const getFallbackAiRecommendation = (need, mode = aiMode) => {

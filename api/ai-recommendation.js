@@ -99,25 +99,36 @@ ${JSON.stringify(context, null, 2)}
 
 要求：
 1. 你可以内部统计最近 30 天成功率、常爬等级、未过线线路、偏好墙型/动作类型和能力短板，但不要把逐条分析过程暴露给用户。
-2. 优先推荐用户记录中真实存在的未过线线路；如果没有足够候选，再推荐“线路类型”，不要编造不存在的具体线路名。
-3. 成功率可以基于同等级/相近等级历史完攀与未过线记录估算；如果样本少，要保守并在 reason 里说明。
-4. 输出必须是严格 JSON，不要 Markdown，不要代码块。
-5. JSON schema:
+2. 先输出近 30 天总结，再输出各路线风格统计，再输出路线推荐。
+3. 成功率只允许出现在 summary/styleStats 这类历史统计里；recommendations 是未来建议，不要写成功率，也不要估算未爬线路成功率。
+4. 优先推荐用户记录中真实存在的未过线线路；如果没有足够候选，再推荐“线路类型”，不要编造不存在的具体线路名。
+5. 输出必须是严格 JSON，不要 Markdown，不要代码块。
+6. JSON schema:
 {
-  "headline": "一句话总结，比如 最近动态路线过多，今天适合补脚法和平衡",
+  "headline": "一句话总结，比如 最近力量线较多，平衡线成功率偏低",
   "windowLabel": "最近 30 天",
   "summary": {
     "routeCount": 0,
     "sentCount": 0,
     "projectCount": 0,
+    "overallSuccessRate": 0,
     "primaryPattern": "一句话概括最近记录"
   },
+  "styleStats": [
+    {
+      "style": "平衡线",
+      "routeCount": 0,
+      "sentCount": 0,
+      "projectCount": 0,
+      "successRate": 0,
+      "note": "一句话说明这个风格的表现"
+    }
+  ],
   "recommendations": [
     {
-      "label": "线路名或线路类型，例如 V4 Slab",
+      "label": "线路名或线路类型，例如 V4 平衡线",
       "grade": "例如 V4",
       "style": "例如 平衡线 / 力量线 / 技术线 / 指力线",
-      "successRate": 0-100,
       "reason": "面向用户的简短理由",
       "tryPlan": "今天尝试时的具体策略"
     }
