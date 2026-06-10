@@ -1238,7 +1238,7 @@ export default function App() {
 
     if (!activeAiSessionIdsByMode[aiMode]) {
       const recentSession = normalizedHistory.find((entry) => entry.mode === aiMode);
-      if (recentSession && !aiRecommendation) {
+      if (recentSession && !aiRecommendationsByMode[aiMode]) {
         const latestAssistantMessage = [...recentSession.messages].reverse().find((message) => message.role === 'assistant')?.content || '';
         setAiRecommendationsByMode((currentRecommendations) => ({
           ...currentRecommendations,
@@ -1246,7 +1246,7 @@ export default function App() {
         }));
       }
     }
-  }, [activeAiSessionIdsByMode, aiHistory, aiMode, aiRecommendation]);
+  }, [activeAiSessionIdsByMode, aiHistory, aiMode, aiRecommendationsByMode]);
 
   useEffect(() => {
     let isActive = true;
