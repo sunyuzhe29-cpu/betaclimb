@@ -144,15 +144,52 @@ const readStoredAiHistory = () => {
     if (!storedValue) return [];
 
     const parsedValue = JSON.parse(storedValue);
-    return Array.isArray(parsedValue) ? parsedValue : [];
+    return Array.isArray(parsedValue) ? normalizeAiHistory(parsedValue) : [];
   } catch {
     return [];
   }
 };
 
+const normalizeAiHistory = (entries) =>
+  entries
+    .filter(Boolean)
+    .map((entry) => {
+      if (Array.isArray(entry.messages)) {
+        return {
+          ...entry,
+          messages: entry.messages.filter((message) => message?.role && message?.content),
+          updatedAt: entry.updatedAt || entry.createdAt || new Date().toISOString(),
+        };
+      }
+
+      const createdAt = entry.createdAt || new Date().toISOString();
+      return {
+        id: entry.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        mode: entry.mode || 'consult',
+        title: String(entry.need || 'AI 对话').slice(0, 32),
+        createdAt,
+        updatedAt: createdAt,
+        messages: [
+          {
+            id: `${entry.id || createdAt}-user`,
+            role: 'user',
+            content: entry.need || '',
+            createdAt,
+          },
+          {
+            id: `${entry.id || createdAt}-assistant`,
+            role: 'assistant',
+            content: entry.recommendation || '',
+            createdAt,
+          },
+        ].filter((message) => message.content),
+      };
+    })
+    .filter((entry) => entry.messages.length);
+
 const writeStoredAiHistory = (entries) => {
   try {
-    window.localStorage.setItem(LOCAL_AI_HISTORY_KEY, JSON.stringify(entries));
+    window.localStorage.setItem(LOCAL_AI_HISTORY_KEY, JSON.stringify(normalizeAiHistory(entries)));
   } catch (error) {
     console.warn('AI 历史本地缓存失败。', error);
   }
@@ -1205,7 +1242,7 @@ export default function App() {
   const [aiNeed, setAiNeed] = useState('');
   const [aiHistory, setAiHistory] = useState(() => readStoredAiHistory());
   const [activeAiHistoryId, setActiveAiHistoryId] = useState('');
-  const [aiRecommendation, setAiRecommendation] = useState(() => readStoredAiHistory()[0]?.recommendation || '');
+  const [aiRecommendation, setAiRecommendation] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [trainingPlans, setTrainingPlans] = useState(() => readStoredTrainingPlans());
   const [trainingPlanDraft, setTrainingPlanDraft] = useState(null);
@@ -1267,9 +1304,11 @@ export default function App() {
     if (!activeAiHistoryId && aiHistory[0]) {
       setActiveAiHistoryId(aiHistory[0].id);
       setAiMode(aiHistory[0].mode || 'consult');
-      setAiNeed(aiHistory[0].need || '');
+      setAiNeed('');
       if (!aiRecommendation) {
-        setAiRecommendation(aiHistory[0].recommendation);
+        setAiRecommendation(
+          [...(aiHistory[0].messages || [])].reverse().find((message) => message.role === 'assistant')?.content || '',
+        );
       }
     }
   }, [activeAiHistoryId, aiHistory, aiRecommendation]);
@@ -1740,10 +1779,8 @@ export default function App() {
   const activeDiscussionRoute = squareRoutes.find((route) => route.id === activeDiscussionRouteId) || null;
   const activeProduct = PRODUCT_CATALOG.find((product) => product.id === activeProductId) || PRODUCT_CATALOG[0];
   const selectedAiMode = AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0];
-  const activeAiConversationEntries = useMemo(
-    () => aiHistory.filter((entry) => entry.mode === aiMode).slice().reverse(),
-    [aiHistory, aiMode],
-  );
+  const activeAiSession = aiHistory.find((entry) => entry.id === activeAiHistoryId) || null;
+  const activeAiConversationMessages = activeAiSession?.mode === aiMode ? activeAiSession.messages || [] : [];
   const activePublicRouteSections = activePublicRouteGroup
     ? [
         {
@@ -2359,21 +2396,54 @@ export default function App() {
     return `根据你的描述：“${need}”\n\n可以先围绕 ${gymText || '你最近常去的岩馆'} 做选择。如果你在问线路，优先挑一条略低于极限等级的线路拆 beta；如果你在问岩馆，优先比较距离、墙型、线路更新频率和同伴情况。${productText}\n\n可参考的记录：${routeText || '公开广场里本月同城用户分享的线路'}。\n\nAI 后端暂时不可用，这是本地备用咨询建议。`;
   };
 
-  const saveAiHistoryEntry = ({ mode, need, recommendation }) => {
-    const entry = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      mode,
-      need,
-      recommendation,
-      createdAt: new Date().toISOString(),
-    };
+  const startNewAiSession = (mode = aiMode) => {
+    setActiveAiHistoryId('');
+    setAiMode(mode);
+    setAiNeed('');
+    setAiRecommendation('');
+    setTrainingPlanDraft(null);
+    setAiPage('chat');
+  };
 
-    setAiHistory((currentHistory) => {
-      const nextHistory = [entry, ...currentHistory].slice(0, MAX_AI_HISTORY_ITEMS);
-      writeStoredAiHistory(nextHistory);
-      return nextHistory;
-    });
-    setActiveAiHistoryId(entry.id);
+  const saveAiHistoryEntry = ({ mode, need, recommendation }) => {
+    const now = new Date().toISOString();
+    const userMessage = {
+      id: `${now}-user-${Math.random().toString(36).slice(2, 7)}`,
+      role: 'user',
+      content: need,
+      createdAt: now,
+    };
+    const assistantMessage = {
+      id: `${now}-assistant-${Math.random().toString(36).slice(2, 7)}`,
+      role: 'assistant',
+      content: recommendation,
+      createdAt: now,
+    };
+    const normalizedHistory = normalizeAiHistory(aiHistory);
+    const activeSession = normalizedHistory.find((entry) => entry.id === activeAiHistoryId && entry.mode === mode);
+    const nextSession = activeSession
+      ? {
+          ...activeSession,
+          title: activeSession.title || need.slice(0, 32) || 'AI 对话',
+          updatedAt: now,
+          messages: [...(activeSession.messages || []), userMessage, assistantMessage],
+        }
+      : {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          mode,
+          title: need.slice(0, 32) || 'AI 对话',
+          createdAt: now,
+          updatedAt: now,
+          messages: [userMessage, assistantMessage],
+        };
+    const nextHistory = [
+      nextSession,
+      ...normalizedHistory.filter((entry) => entry.id !== nextSession.id),
+    ].slice(0, MAX_AI_HISTORY_ITEMS);
+
+    writeStoredAiHistory(nextHistory);
+    setAiHistory(nextHistory);
+    setActiveAiHistoryId(nextSession.id);
   };
 
   const updateTrainingPlanDraft = (updates) => {
@@ -2615,6 +2685,7 @@ export default function App() {
         setTrainingPlanDraft(inferLongTermPlanDraft(requestNeed, aiContext));
       }
     } finally {
+      setAiNeed('');
       setIsAiLoading(false);
     }
   };
@@ -3229,6 +3300,9 @@ export default function App() {
                   <div className="ai-history-list">
                     {aiHistory.map((entry) => {
                       const entryMode = AI_ASSISTANT_MODES.find((mode) => mode.id === entry.mode) || AI_ASSISTANT_MODES[0];
+                      const messageCount = entry.messages?.filter((message) => message.role === 'user').length || 0;
+                      const latestAssistantMessage =
+                        [...(entry.messages || [])].reverse().find((message) => message.role === 'assistant')?.content || '';
 
                       return (
                         <button
@@ -3238,14 +3312,16 @@ export default function App() {
                           onClick={() => {
                             setActiveAiHistoryId(entry.id);
                             setAiMode(entry.mode);
-                            setAiNeed(entry.need);
-                            setAiRecommendation(entry.recommendation);
+                            setAiNeed('');
+                            setAiRecommendation(latestAssistantMessage);
                             setAiPage('chat');
                           }}
                         >
                           <span>{entryMode.title}</span>
-                          <strong>{entry.need}</strong>
-                          <small>{formatAiHistoryTime(entry.createdAt)}</small>
+                          <strong>{entry.title || entry.messages?.[0]?.content || 'AI 对话'}</strong>
+                          <small>
+                            {messageCount} 轮对话 · {formatAiHistoryTime(entry.updatedAt || entry.createdAt)}
+                          </small>
                         </button>
                       );
                     })}
@@ -3269,26 +3345,33 @@ export default function App() {
                   <p className="eyebrow">AI 模块</p>
                   <h1>{selectedAiMode.title}</h1>
                 </div>
-                <button className="ghost-btn" type="button" onClick={() => setAiPage('history')}>
-                  <ClipboardList size={17} />
-                  历史
-                </button>
+                <div className="header-actions">
+                  <button className="ghost-btn" type="button" onClick={() => startNewAiSession(aiMode)}>
+                    <Plus size={17} />
+                    新对话
+                  </button>
+                  <button className="ghost-btn" type="button" onClick={() => setAiPage('history')}>
+                    <ClipboardList size={17} />
+                    历史
+                  </button>
+                </div>
               </section>
 
               <section className="ai-chat-page" aria-label={`${selectedAiMode.title}聊天`}>
                 <div className="ai-chat-thread" aria-live="polite">
-                  {activeAiConversationEntries.length ? (
-                    activeAiConversationEntries.map((entry) => (
-                      <article className="ai-chat-pair" key={entry.id}>
-                        <div className="chat-message user-message">
-                          <span>你</span>
-                          <p>{entry.need}</p>
-                        </div>
-                        <div className="chat-message assistant-message">
-                          <span>{selectedAiMode.title}</span>
-                          <pre className="ai-result">{entry.recommendation}</pre>
-                        </div>
-                      </article>
+                  {activeAiConversationMessages.length ? (
+                    activeAiConversationMessages.map((message) => (
+                      <div
+                        className={`chat-message ${message.role === 'user' ? 'user-message' : 'assistant-message'}`}
+                        key={message.id}
+                      >
+                        <span>{message.role === 'user' ? '你' : selectedAiMode.title}</span>
+                        {message.role === 'assistant' ? (
+                          <pre className="ai-result">{message.content}</pre>
+                        ) : (
+                          <p>{message.content}</p>
+                        )}
+                      </div>
                     ))
                   ) : (
                     <div className="ai-empty-state chat-empty">
@@ -3297,7 +3380,7 @@ export default function App() {
                       <p>{selectedAiMode.description}</p>
                     </div>
                   )}
-                  {aiRecommendation && !activeAiConversationEntries.length && !isAiLoading ? (
+                  {aiRecommendation && !activeAiConversationMessages.length && !isAiLoading ? (
                     <div className="chat-message assistant-message">
                       <span>{selectedAiMode.title}</span>
                       <p>{aiRecommendation}</p>
@@ -3479,9 +3562,13 @@ export default function App() {
                       key={mode.id}
                       type="button"
                       onClick={() => {
+                        const recentSession = aiHistory.find((entry) => entry.mode === mode.id);
                         setAiMode(mode.id);
                         setAiNeed('');
-                        setAiRecommendation('');
+                        setActiveAiHistoryId(recentSession?.id || '');
+                        setAiRecommendation(
+                          [...(recentSession?.messages || [])].reverse().find((message) => message.role === 'assistant')?.content || '',
+                        );
                         setAiPage('chat');
                       }}
                     >
