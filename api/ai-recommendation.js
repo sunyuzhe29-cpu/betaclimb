@@ -1,9 +1,11 @@
 const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
 const AI_GATEWAY_API_URL = 'https://ai-gateway.vercel.sh/v1/responses';
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_MODEL = 'gpt-4.1-mini';
 const DEFAULT_GATEWAY_MODEL = 'openai/gpt-4.1-mini';
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-chat';
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 const ROUTE_HISTORY_MODE = 'route_history';
 const MAX_ROUTE_HISTORY_IMAGES = 6;
 
@@ -60,6 +62,24 @@ const parseJsonOutput = (text) => {
   }
 };
 
+const stripDataUrl = (dataUrl) => {
+  const match = String(dataUrl || '').match(/^data:(image\/[A-Za-z0-9.+-]+);base64,(.+)$/);
+  if (!match) return null;
+
+  return {
+    mimeType: match[1],
+    data: match[2],
+  };
+};
+
+const getGeminiOutputText = (payload) =>
+  (payload.candidates || [])
+    .flatMap((candidate) => candidate.content?.parts || [])
+    .map((part) => part.text || '')
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+
 const getPrompt = ({ mode, need, context }) => `
 你是 BetaClimb 的攀岩 AI 助手。请用简体中文回答。
 
@@ -89,7 +109,7 @@ ${JSON.stringify(context, null, 2)}
 10. 输出要简洁、可执行，适合手机阅读。
 `;
 
-const getRouteHistoryPrompt = ({ need, context, routeImages = [] }) => `
+const getRouteHistoryPrompt = ({ need, context }) => `
 你是 BetaClimb 的攀岩路线推荐引擎。请在后台分析用户最近 30 天的线路记录、完攀记录、未过线挑战、常去岩馆和公开线路数据，最后只给用户展示总结与推荐，不展示完整分析过程。
 
 用户补充：
@@ -98,10 +118,10 @@ ${need || '用户没有补充目标，请根据最近记录推荐今天适合尝
 可用数据 JSON：
 ${JSON.stringify(context, null, 2)}
 
-随请求附带了 ${routeImages.length} 张最近线路记录图片。每张图片前会有对应 imageRef、线路名、难度、状态和日期。请读取这些图片来判断墙面角度、点型密度、可能动作风格、脚法/力量/动态倾向，并把判断融入推荐，但不要向用户展示逐图识别细节。
+可用数据里可能包含 visualRouteAnalysis，这是 Gemini 对最近线路照片的后台读图标签。请把这些视觉标签融入推荐，但不要向用户展示逐图识别细节。
 
 要求：
-1. 你可以内部统计最近 30 天成功率、常爬等级、未过线线路、偏好墙型/动作类型和能力短板，并读取线路照片辅助判断风格；不要把逐条/逐图分析过程暴露给用户。
+1. 你可以内部统计最近 30 天成功率、常爬等级、未过线线路、偏好墙型/动作类型和能力短板，并结合 visualRouteAnalysis 判断风格；不要把逐条/逐图分析过程暴露给用户。
 2. 优先推荐用户记录中真实存在的未过线线路；如果没有足够候选，再推荐“线路类型”，不要编造不存在的具体线路名。
 3. 成功率可以基于同等级/相近等级历史完攀与未过线记录估算；如果样本少，要保守并在 reason 里说明。
 4. 输出必须是严格 JSON，不要 Markdown，不要代码块。
@@ -129,6 +149,89 @@ ${JSON.stringify(context, null, 2)}
   "recordingTip": "建议用户补充哪些记录让推荐更准"
 }
 `;
+
+const analyzeRouteImagesWithGemini = async (routeImages) => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || !routeImages.length) return [];
+
+  const imageParts = routeImages.flatMap((routeImage) => {
+    const image = stripDataUrl(routeImage.imageUrl);
+    if (!image) return [];
+
+    return [
+      {
+        text: `imageRef=${routeImage.imageRef}; routeName=${routeImage.routeName || '未命名线路'}; grade=${
+          routeImage.grade || '未定级'
+        }; status=${routeImage.status === 'sent' ? '已过线' : '待挑战'}; gym=${routeImage.gymName || '未知岩馆'}; date=${
+          routeImage.activityDate || '未知'
+        }`,
+      },
+      {
+        inline_data: {
+          mime_type: image.mimeType,
+          data: image.data,
+        },
+      },
+    ];
+  });
+
+  if (!imageParts.length) return [];
+
+  const geminiResponse = await fetch(
+    `${process.env.GEMINI_API_URL || GEMINI_API_URL}/${process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL}:generateContent`,
+    {
+      method: 'POST',
+      headers: {
+        'x-goog-api-key': apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: `你是攀岩线路照片分析器。请读取每张线路照片，只输出严格 JSON，不要 Markdown。
+
+JSON schema:
+{
+  "routes": [
+    {
+      "imageRef": "route-image-1",
+      "wallAngle": "slab | vertical | overhang | roof | unknown",
+      "holdTypes": ["jug", "crimp", "sloper", "pinch", "volume", "pocket", "unknown"],
+      "movementStyle": ["balance", "footwork", "power", "dynamic", "coordination", "endurance", "technical"],
+      "skillTags": ["Balance", "Footwork", "Power", "Dyno", "Body tension"],
+      "difficultyBias": "easy | moderate | hard | unknown",
+      "confidence": 0.0
+    }
+  ]
+}
+
+不要编造官方线路名或官方难度。只做视觉风格标签。`,
+              },
+              ...imageParts,
+            ],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.2,
+        },
+      }),
+    },
+  );
+
+  const payload = await geminiResponse.json();
+  if (!geminiResponse.ok) {
+    throw new Error(payload?.error?.message || 'Gemini 线路照片分析失败。');
+  }
+
+  const parsedOutput = parseJsonOutput(getGeminiOutputText(payload));
+  if (Array.isArray(parsedOutput)) return parsedOutput;
+  if (Array.isArray(parsedOutput?.routes)) return parsedOutput.routes;
+  return [];
+};
 
 const getProviderConfig = ({ requiresVision = false } = {}) => {
   if (!requiresVision && process.env.DEEPSEEK_API_KEY) {
@@ -169,11 +272,11 @@ const getProviderBody = ({ provider, need, mode, context, routeImages = [] }) =>
   const systemContent =
     '你是专业、谨慎、务实的攀岩助手。你会根据用户记录、公开线路数据和用户当天目标，输出安全且可执行的建议。';
   const isRouteHistoryMode = mode === ROUTE_HISTORY_MODE;
-  const userContent = isRouteHistoryMode ? getRouteHistoryPrompt({ need, context, routeImages }) : getPrompt({ mode, need, context });
+  const userContent = isRouteHistoryMode ? getRouteHistoryPrompt({ need, context }) : getPrompt({ mode, need, context });
 
   if (provider.protocol === 'chat-completions') {
     if (isRouteHistoryMode && routeImages.length) {
-      throw new Error('路线推荐需要读取线路照片，请配置 OpenAI 或 Vercel AI Gateway 这类支持视觉输入的模型。');
+      throw new Error('路线推荐需要读取线路照片，请配置 GEMINI_API_KEY，或改用 OpenAI / Vercel AI Gateway 这类支持视觉输入的模型。');
     }
 
     return {
@@ -247,13 +350,15 @@ export default async function handler(request, response) {
     json(response, 200, {
       hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
       hasDeepSeekKey: Boolean(process.env.DEEPSEEK_API_KEY),
+      hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
       hasAiGatewayKey: Boolean(process.env.AI_GATEWAY_API_KEY),
       hasVercelOidcToken: Boolean(process.env.VERCEL_OIDC_TOKEN),
       hasViteOpenAIKey: Boolean(process.env.VITE_OPENAI_API_KEY),
       provider: provider?.provider || 'none',
       model: provider?.model || process.env.OPENAI_MODEL || process.env.DEEPSEEK_MODEL || DEFAULT_MODEL,
+      geminiModel: process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
       vercelEnv: process.env.VERCEL_ENV || 'unknown',
-      note: 'This endpoint never returns secret values. It prefers DEEPSEEK_API_KEY, then AI Gateway, then OPENAI_API_KEY.',
+      note: 'This endpoint never returns secret values. It prefers DEEPSEEK_API_KEY for text, and uses GEMINI_API_KEY to analyze route images when present.',
     });
     return;
   }
@@ -292,12 +397,28 @@ export default async function handler(request, response) {
     return;
   }
 
-  const provider = getProviderConfig({ requiresVision: mode === ROUTE_HISTORY_MODE && routeImages.length > 0 });
+  let context = body.context || {};
+  let routeImagesForProvider = routeImages;
+
+  if (mode === ROUTE_HISTORY_MODE && routeImages.length > 0 && process.env.GEMINI_API_KEY) {
+    const visualTags = await analyzeRouteImagesWithGemini(routeImages);
+    context = {
+      ...context,
+      visualRouteAnalysis: {
+        provider: 'gemini',
+        model: process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
+        routes: visualTags,
+      },
+    };
+    routeImagesForProvider = [];
+  }
+
+  const provider = getProviderConfig({ requiresVision: mode === ROUTE_HISTORY_MODE && routeImagesForProvider.length > 0 });
   if (!provider) {
     json(response, 500, {
       error:
-        mode === ROUTE_HISTORY_MODE && routeImages.length > 0
-          ? '路线推荐需要读取线路照片，请配置 OpenAI 或 Vercel AI Gateway 这类支持视觉输入的模型。'
+        mode === ROUTE_HISTORY_MODE && routeImagesForProvider.length > 0
+          ? '路线推荐需要读取线路照片，请配置 GEMINI_API_KEY，或改用 OpenAI / Vercel AI Gateway 这类支持视觉输入的模型。'
           : '后端还没有可用的 AI 鉴权。请配置 DEEPSEEK_API_KEY、Vercel AI Gateway 或 OPENAI_API_KEY。',
     });
     return;
@@ -315,8 +436,8 @@ export default async function handler(request, response) {
           provider,
           need,
           mode,
-          context: body.context || {},
-          routeImages,
+          context,
+          routeImages: routeImagesForProvider,
         }),
       }),
     });
