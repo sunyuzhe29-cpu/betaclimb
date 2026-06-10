@@ -66,6 +66,8 @@ const PUBLIC_SQUARE_POSTS_TABLE = 'public_square_posts';
 const PUBLIC_SQUARE_COMMENTS_TABLE = 'public_square_comments';
 const BETA_VIDEO_BUCKET = 'beta-videos';
 const MAX_LOCAL_VIDEO_BYTES = 6 * 1024 * 1024;
+const MAX_STORED_IMAGE_EDGE = 1400;
+const STORED_IMAGE_QUALITY = 0.82;
 const LOCAL_SQUARE_POSTS_KEY = 'betaclimb:square-posts';
 const LOCAL_AI_HISTORY_KEY = 'betaclimb:ai-history';
 const LOCAL_TRAINING_PLANS_KEY = 'betaclimb:training-plans';
@@ -82,6 +84,37 @@ const fileToDataUrl = (file) =>
     reader.readAsDataURL(file);
   });
 
+const compressImageFileToDataUrl = (file, maxEdge = MAX_STORED_IMAGE_EDGE, quality = STORED_IMAGE_QUALITY) =>
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+
+      const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+      const context = canvas.getContext('2d');
+      if (!context) {
+        reject(new Error('图片处理失败，请换一张照片再试。'));
+        return;
+      }
+
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error(`图片读取失败：${file.name}`));
+    };
+
+    image.src = objectUrl;
+  });
+
 const readStoredGyms = (storageKey) => {
   try {
     const storedValue = window.localStorage.getItem(storageKey);
@@ -94,9 +127,18 @@ const readStoredGyms = (storageKey) => {
   }
 };
 
-const writeStoredGyms = (storageKey, gyms) => {
+const readStoredGymsUpdatedAt = (storageKey) => {
+  try {
+    return window.localStorage.getItem(`${storageKey}:updatedAt`) || '';
+  } catch {
+    return '';
+  }
+};
+
+const writeStoredGyms = (storageKey, gyms, updatedAt = new Date().toISOString()) => {
   try {
     window.localStorage.setItem(storageKey, JSON.stringify(gyms));
+    window.localStorage.setItem(`${storageKey}:updatedAt`, updatedAt);
     return true;
   } catch (error) {
     console.warn('本地存储空间不足，已跳过本机缓存。', error);
@@ -250,6 +292,41 @@ const saveCloudGyms = async (userId, gyms) => {
       },
       { onConflict: 'user_id' },
     );
+};
+
+const countRoutesInGyms = (gyms) =>
+  gyms.reduce((count, gym) => count + (Array.isArray(gym.routes) ? gym.routes.length : 0), 0);
+
+const mergeGymsByLocalProgress = (cloudGyms = [], localGyms = []) => {
+  if (!localGyms.length) return cloudGyms;
+  if (!cloudGyms.length) return localGyms;
+
+  const localGymMap = new Map(localGyms.map((gym) => [gym.id, gym]));
+  const mergedGyms = cloudGyms.map((cloudGym) => {
+    const localGym = localGymMap.get(cloudGym.id);
+    if (!localGym) return cloudGym;
+
+    localGymMap.delete(cloudGym.id);
+
+    const cloudRoutes = Array.isArray(cloudGym.routes) ? cloudGym.routes : [];
+    const localRoutes = Array.isArray(localGym.routes) ? localGym.routes : [];
+    const cloudRouteMap = new Map(cloudRoutes.map((route) => [route.id, route]));
+    const mergedRoutes = [
+      ...localRoutes.map((localRoute) => ({
+        ...(cloudRouteMap.get(localRoute.id) || {}),
+        ...localRoute,
+      })),
+      ...cloudRoutes.filter((route) => !localRoutes.some((localRoute) => localRoute.id === route.id)),
+    ];
+
+    return {
+      ...cloudGym,
+      ...localGym,
+      routes: mergedRoutes,
+    };
+  });
+
+  return [...localGymMap.values(), ...mergedGyms];
 };
 
 const getSentEntries = (gyms) =>
@@ -1274,7 +1351,7 @@ export default function App() {
 
       const { data, error } = await supabase
         .from(CLOUD_GYMS_TABLE)
-        .select('gyms')
+        .select('gyms, updated_at')
         .eq('user_id', user.id)
         .maybeSingle();
 
@@ -1289,12 +1366,21 @@ export default function App() {
       }
 
       const cloudGyms = Array.isArray(data?.gyms) ? data.gyms : null;
-      const nextGyms = cloudGyms || fallbackGyms;
+      const localUpdatedAt = readStoredGymsUpdatedAt(storageKey);
+      const cloudUpdatedAt = data?.updated_at || '';
+      const shouldPreferLocalFallback =
+        fallbackGyms.length &&
+        (!cloudGyms ||
+          countRoutesInGyms(fallbackGyms) > countRoutesInGyms(cloudGyms) ||
+          (localUpdatedAt && cloudUpdatedAt && new Date(localUpdatedAt).getTime() > new Date(cloudUpdatedAt).getTime()));
+      const nextGyms = shouldPreferLocalFallback
+        ? mergeGymsByLocalProgress(cloudGyms || [], fallbackGyms)
+        : cloudGyms || fallbackGyms;
       setGyms(nextGyms);
-      writeStoredGyms(storageKey, nextGyms);
+      writeStoredGyms(storageKey, nextGyms, shouldPreferLocalFallback ? new Date().toISOString() : cloudUpdatedAt || new Date().toISOString());
 
-      if (!cloudGyms && fallbackGyms.length) {
-        const { error: saveError } = await saveCloudGyms(user.id, fallbackGyms);
+      if (shouldPreferLocalFallback) {
+        const { error: saveError } = await saveCloudGyms(user.id, nextGyms);
         if (saveError) {
           console.error('初始化云端攀岩数据失败', saveError);
         }
@@ -1853,7 +1939,7 @@ export default function App() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    updateActiveGym({ imageUrl: await fileToDataUrl(file) });
+    updateActiveGym({ imageUrl: await compressImageFileToDataUrl(file) });
     event.target.value = '';
   };
 
@@ -2101,7 +2187,7 @@ export default function App() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const imageUrl = await fileToDataUrl(file);
+    const imageUrl = await compressImageFileToDataUrl(file);
     const nextRoute = {
       id: `${Date.now()}-${file.name}`,
       name: `未命名线路 ${activeGym.routes.length + 1}`,
