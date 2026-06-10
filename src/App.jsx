@@ -70,7 +70,8 @@ const LOCAL_SQUARE_POSTS_KEY = 'betaclimb:square-posts';
 const LOCAL_AI_HISTORY_KEY = 'betaclimb:ai-history';
 const LOCAL_TRAINING_PLANS_KEY = 'betaclimb:training-plans';
 const MAX_AI_HISTORY_ITEMS = 24;
-const MAX_ROUTE_HISTORY_IMAGES = 8;
+const MAX_ROUTE_HISTORY_IMAGES = 6;
+const ROUTE_HISTORY_IMAGE_MAX_SIZE = 900;
 
 const fileToDataUrl = (file) =>
   new Promise((resolve, reject) => {
@@ -79,6 +80,28 @@ const fileToDataUrl = (file) =>
     reader.onload = () => resolve(String(reader.result || ''));
     reader.onerror = () => reject(new Error(`文件读取失败：${file.name}`));
     reader.readAsDataURL(file);
+  });
+
+const compressImageDataUrl = (imageUrl, maxSize = ROUTE_HISTORY_IMAGE_MAX_SIZE) =>
+  new Promise((resolve, reject) => {
+    if (!String(imageUrl || '').startsWith('data:image/')) {
+      resolve(imageUrl);
+      return;
+    }
+
+    const image = new Image();
+    image.onload = () => {
+      const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+
+      const context = canvas.getContext('2d');
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.72));
+    };
+    image.onerror = () => reject(new Error('线路照片压缩失败。'));
+    image.src = imageUrl;
   });
 
 const readStoredGyms = (storageKey) => {
@@ -727,6 +750,25 @@ const getRecentRouteImageInputs = (gyms, days = 30, limit = MAX_ROUTE_HISTORY_IM
       ...route,
       imageRef: `route-image-${index + 1}`,
     }));
+};
+
+const prepareRecentRouteImageInputs = async (gyms, days = 30) => {
+  const routeImages = getRecentRouteImageInputs(gyms, days);
+  const compressedEntries = await Promise.all(
+    routeImages.map(async (routeImage) => {
+      try {
+        return {
+          ...routeImage,
+          imageUrl: await compressImageDataUrl(routeImage.imageUrl),
+        };
+      } catch (error) {
+        console.warn('线路图片压缩失败，已跳过。', error);
+        return null;
+      }
+    }),
+  );
+
+  return compressedEntries.filter(Boolean);
 };
 
 const buildRecentRouteRecommendationContext = (gyms, days = 30) => {
@@ -2522,7 +2564,7 @@ export default function App() {
     setAiRecommendation(selectedMode.loading);
     setTrainingPlanDraft(null);
     const aiContext = getAiContext();
-    const routeImages = aiMode === 'route_history' ? getRecentRouteImageInputs(gyms, 30) : [];
+    const routeImages = aiMode === 'route_history' ? await prepareRecentRouteImageInputs(gyms, 30) : [];
     const requestNeed = need || '请根据我最近 30 天的线路记录和线路照片生成今天路线推荐。';
 
     try {
@@ -2541,6 +2583,9 @@ export default function App() {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
+        if (response.status === 413) {
+          throw new Error('线路照片数据太大，请减少最近记录图片或稍后重试。');
+        }
         throw new Error(result.error || 'AI 服务暂时不可用。');
       }
 

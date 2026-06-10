@@ -5,6 +5,7 @@ const DEFAULT_MODEL = 'gpt-4.1-mini';
 const DEFAULT_GATEWAY_MODEL = 'openai/gpt-4.1-mini';
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-chat';
 const ROUTE_HISTORY_MODE = 'route_history';
+const MAX_ROUTE_HISTORY_IMAGES = 6;
 
 const json = (response, status, body) => {
   response.statusCode = status;
@@ -275,7 +276,7 @@ export default async function handler(request, response) {
   const routeImages = Array.isArray(body.routeImages)
     ? body.routeImages
         .filter((routeImage) => /^data:image\/|^https?:\/\//i.test(String(routeImage?.imageUrl || '')))
-        .slice(0, 8)
+        .slice(0, MAX_ROUTE_HISTORY_IMAGES)
         .map((routeImage) => ({
           imageRef: String(routeImage.imageRef || '').slice(0, 40),
           imageUrl: String(routeImage.imageUrl || ''),
