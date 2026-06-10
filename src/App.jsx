@@ -774,6 +774,7 @@ const getRouteAddedAt = (route, gym) => {
 const buildMonthlyPersonalStats = (gyms, monthKey) => {
   const gymStatsById = {};
   const visitKeys = new Set();
+  const routes = [];
   const unsentRoutes = [];
   let sentCount = 0;
   let unsentCount = 0;
@@ -796,6 +797,17 @@ const buildMonthlyPersonalStats = (gyms, monthKey) => {
         gymStats.sentCount += 1;
         gymStats.visitDates.add(route.sentAt);
         visitKeys.add(`${gym.id}:${route.sentAt}`);
+        routes.push({
+          gymId: gym.id,
+          gymName: gym.name,
+          gymArea: gym.area,
+          routeId: route.id,
+          routeName: route.name,
+          grade: route.grade.trim().toUpperCase() || '未定级',
+          status: 'sent',
+          activityDate: route.sentAt,
+          style: getRouteStyleLabel(route),
+        });
       }
 
       if (!route.sentAt && addedAt.startsWith(monthKey)) {
@@ -810,6 +822,9 @@ const buildMonthlyPersonalStats = (gyms, monthKey) => {
           routeId: route.id,
           routeName: route.name,
           grade: route.grade.trim().toUpperCase() || '未定级',
+          status: 'project',
+          activityDate: addedAt,
+          style: getRouteStyleLabel(route),
         });
       }
     });
@@ -836,6 +851,12 @@ const buildMonthlyPersonalStats = (gyms, monthKey) => {
           gymB.unsentCount - gymA.unsentCount ||
           gymA.gymName.localeCompare(gymB.gymName, 'zh-CN'),
       ),
+    routes: routes.sort(
+      (routeA, routeB) =>
+        routeB.activityDate.localeCompare(routeA.activityDate) ||
+        routeA.gymName.localeCompare(routeB.gymName, 'zh-CN') ||
+        routeA.routeName.localeCompare(routeB.routeName, 'zh-CN'),
+    ),
     unsentRoutes: unsentRoutes.sort(
       (routeA, routeB) =>
         routeA.gymName.localeCompare(routeB.gymName, 'zh-CN') ||
@@ -1014,6 +1035,31 @@ const getFavoriteRouteEntries = (gyms) =>
         routeA.gymName.localeCompare(routeB.gymName, 'zh-CN') ||
         routeA.routeName.localeCompare(routeB.routeName, 'zh-CN'),
     );
+
+const getRecentRouteEntries = (gyms, limit = 12) =>
+  gyms
+    .flatMap((gym) =>
+      gym.routes.map((route) => ({
+        gymId: gym.id,
+        gymName: gym.name,
+        gymArea: gym.area,
+        routeId: route.id,
+        routeName: route.name,
+        grade: route.grade.trim().toUpperCase() || '未定级',
+        sentAt: route.sentAt || '',
+        addedAt: getRouteAddedAt(route, gym),
+        activityDate: route.sentAt || getRouteAddedAt(route, gym),
+        status: route.sentAt ? 'sent' : 'project',
+        style: getRouteStyleLabel(route),
+      })),
+    )
+    .sort(
+      (routeA, routeB) =>
+        routeB.activityDate.localeCompare(routeA.activityDate) ||
+        routeA.gymName.localeCompare(routeB.gymName, 'zh-CN') ||
+        routeA.routeName.localeCompare(routeB.routeName, 'zh-CN'),
+    )
+    .slice(0, limit);
 
 function UserMenu({ onOpenAuth }) {
   const { isAuthLoading, user } = useAuth();
@@ -1784,6 +1830,7 @@ export default function App() {
     0,
   );
   const favoriteRoutes = useMemo(() => getFavoriteRouteEntries(gyms), [gyms]);
+  const recentRoutes = useMemo(() => getRecentRouteEntries(gyms), [gyms]);
   const sentEntries = useMemo(() => getSentEntries(gyms), [gyms]);
   const plannedTrainingEntries = useMemo(() => expandTrainingPlanEntries(trainingPlans), [trainingPlans]);
   const activeTrainingPlan = trainingPlans.find((plan) => plan.id === activeTrainingPlanId) || null;
@@ -4160,6 +4207,38 @@ export default function App() {
                   </div>
                 ) : (
                   <p className="empty-copy">这个月还没有过线记录，也没有待挑战线路。</p>
+                )}
+              </div>
+
+              <div className="challenge-panel" aria-label="最近线路">
+                <div className="monthly-stat-header">
+                  <span>
+                    <ClipboardList size={16} />
+                    最近线路
+                  </span>
+                  <small>{recentRoutes.length} 条</small>
+                </div>
+                {recentRoutes.length ? (
+                  <div className="challenge-route-list">
+                    {recentRoutes.map((route) => (
+                      <button
+                        className="challenge-route"
+                        key={`recent-${route.gymId}-${route.routeId}`}
+                        type="button"
+                        onClick={() => openChallengeRoute(route)}
+                      >
+                        <span>
+                          <b>{route.routeName}</b>
+                          <small>
+                            {route.gymName} · {route.style || '未选风格'} · {route.activityDate}
+                          </small>
+                        </span>
+                        <em>{route.status === 'sent' ? `已过 ${route.grade}` : route.grade}</em>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-copy">还没有添加线路。</p>
                 )}
               </div>
 
