@@ -70,6 +70,7 @@ const LOCAL_SQUARE_POSTS_KEY = 'betaclimb:square-posts';
 const LOCAL_AI_HISTORY_KEY = 'betaclimb:ai-history';
 const LOCAL_TRAINING_PLANS_KEY = 'betaclimb:training-plans';
 const MAX_AI_HISTORY_ITEMS = 24;
+const MAX_ROUTE_HISTORY_IMAGES = 8;
 
 const fileToDataUrl = (file) =>
   new Promise((resolve, reject) => {
@@ -675,6 +676,146 @@ const buildMonthlyPersonalStats = (gyms, monthKey) => {
   };
 };
 
+const getRouteStyleTags = (route) => {
+  const text = `${route.name || ''} ${route.notes || ''}`.toLowerCase();
+  const tagRules = [
+    ['Slab', /slab|平衡|重心|脚法|脚点|balance|footwork/],
+    ['Overhang', /overhang|roof|仰角|大仰|屋檐|陡墙/],
+    ['Dyno', /dyno|动态|跳|协调|coordination/],
+    ['Crimp', /crimp|小点|小手点|抠点/],
+    ['Sloper', /sloper|圆包|摩擦/],
+    ['Pinch', /pinch|捏点/],
+    ['Power', /力量|锁定|引体|爆发|power/],
+    ['Endurance', /耐力|泵|pump|连续/],
+  ];
+  const tags = tagRules.filter(([, pattern]) => pattern.test(text)).map(([tag]) => tag);
+  return tags.length ? tags : ['未标注'];
+};
+
+const isAiReadableImageUrl = (imageUrl) => /^data:image\/|^https?:\/\//i.test(String(imageUrl || ''));
+
+const getRecentRouteImageInputs = (gyms, days = 30, limit = MAX_ROUTE_HISTORY_IMAGES) => {
+  const endDate = new Date();
+  const startDate = addDays(endDate, -days + 1);
+  const startKey = formatLocalDate(startDate);
+  const endKey = formatLocalDate(endDate);
+  const routeImages = [];
+
+  gyms.forEach((gym) => {
+    gym.routes.forEach((route) => {
+      const addedAt = getRouteAddedAt(route, gym);
+      const activityDate = route.sentAt || addedAt;
+      if (activityDate < startKey || activityDate > endKey || !isAiReadableImageUrl(route.imageUrl)) return;
+
+      routeImages.push({
+        imageRef: '',
+        imageUrl: route.imageUrl,
+        gymName: gym.name,
+        gymArea: gym.area,
+        routeName: route.name,
+        grade: route.grade?.trim().toUpperCase() || '未定级',
+        status: route.sentAt ? 'sent' : 'project',
+        activityDate,
+      });
+    });
+  });
+
+  return routeImages
+    .sort((routeA, routeB) => routeB.activityDate.localeCompare(routeA.activityDate))
+    .slice(0, limit)
+    .map((route, index) => ({
+      ...route,
+      imageRef: `route-image-${index + 1}`,
+    }));
+};
+
+const buildRecentRouteRecommendationContext = (gyms, days = 30) => {
+  const endDate = new Date();
+  const startDate = addDays(endDate, -days + 1);
+  const startKey = formatLocalDate(startDate);
+  const endKey = formatLocalDate(endDate);
+  const routeImages = getRecentRouteImageInputs(gyms, days);
+  const routeImageRefs = routeImages.reduce((acc, routeImage) => {
+    acc[`${routeImage.gymName}:${routeImage.routeName}:${routeImage.activityDate}`] = routeImage.imageRef;
+    return acc;
+  }, {});
+  const routes = [];
+  const byGrade = {};
+  const byStyle = {};
+
+  gyms.forEach((gym) => {
+    gym.routes.forEach((route) => {
+      const addedAt = getRouteAddedAt(route, gym);
+      const activityDate = route.sentAt || addedAt;
+      if (activityDate < startKey || activityDate > endKey) return;
+
+      const grade = route.grade?.trim().toUpperCase() || '未定级';
+      const status = route.sentAt ? 'sent' : 'project';
+      const styleTags = getRouteStyleTags(route);
+      const imageRef = routeImageRefs[`${gym.name}:${route.name}:${activityDate}`] || '';
+      const routeSummary = {
+        imageRef,
+        hasImage: Boolean(imageRef),
+        gymName: gym.name,
+        gymArea: gym.area,
+        routeName: route.name,
+        grade,
+        status,
+        activityDate,
+        sentAt: route.sentAt || '',
+        addedAt,
+        notes: route.notes ? route.notes.slice(0, 180) : '',
+        styleTags,
+      };
+
+      routes.push(routeSummary);
+      byGrade[grade] = byGrade[grade] || { grade, sent: 0, project: 0, total: 0 };
+      byGrade[grade][status === 'sent' ? 'sent' : 'project'] += 1;
+      byGrade[grade].total += 1;
+
+      styleTags.forEach((style) => {
+        byStyle[style] = byStyle[style] || { style, sent: 0, project: 0, total: 0 };
+        byStyle[style][status === 'sent' ? 'sent' : 'project'] += 1;
+        byStyle[style].total += 1;
+      });
+    });
+  });
+
+  const sentCount = routes.filter((route) => route.status === 'sent').length;
+  const projectCount = routes.length - sentCount;
+
+  return {
+    days,
+    startDate: startKey,
+    endDate: endKey,
+    routeCount: routes.length,
+    sentCount,
+    projectCount,
+    successRate: routes.length ? Math.round((sentCount / routes.length) * 100) : 0,
+    byGrade: Object.values(byGrade).sort((gradeA, gradeB) => gradeA.grade.localeCompare(gradeB.grade, 'zh-CN')),
+    byStyle: Object.values(byStyle)
+      .sort((styleA, styleB) => styleB.total - styleA.total || styleA.style.localeCompare(styleB.style, 'zh-CN'))
+      .slice(0, 8),
+    recentProjects: routes
+      .filter((route) => route.status === 'project')
+      .sort((routeA, routeB) => routeB.activityDate.localeCompare(routeA.activityDate))
+      .slice(0, 12),
+    recentSends: routes
+      .filter((route) => route.status === 'sent')
+      .sort((routeA, routeB) => routeB.activityDate.localeCompare(routeA.activityDate))
+      .slice(0, 12),
+    imageRoutes: routeImages.map((routeImage) => ({
+      imageRef: routeImage.imageRef,
+      gymName: routeImage.gymName,
+      gymArea: routeImage.gymArea,
+      routeName: routeImage.routeName,
+      grade: routeImage.grade,
+      status: routeImage.status,
+      activityDate: routeImage.activityDate,
+    })),
+  };
+};
+
 const moveMonth = (monthKey, offset) => {
   const [year, month] = monthKey.split('-').map(Number);
   const next = new Date(year, month - 1 + offset, 1);
@@ -860,6 +1001,15 @@ const AI_ASSISTANT_MODES = [
     placeholder: '例如：未来 6 周想一周去 3 次岩馆，提高 V4-V5 完攀率，每次 90 分钟，强度 6-8/10。',
     action: '生成长期计划',
     loading: '正在生成计划...',
+  },
+  {
+    id: 'route_history',
+    title: '路线推荐',
+    description: '汇总最近一个月线路记录，给出推荐和短板',
+    icon: Target,
+    placeholder: '可选：例如今天想轻松一点、想练脚法、想冲 V5。留空也可以直接生成总结。',
+    action: '生成路线推荐',
+    loading: '正在统计最近记录...',
   },
 ];
 
@@ -2018,6 +2168,7 @@ export default function App() {
 
   const getAiContext = () => ({
     month: calendarMonth,
+    recentRouteWindow: buildRecentRouteRecommendationContext(gyms, 30),
     personalGyms: gyms.slice(0, 8).map((gym) => ({
       name: gym.name,
       area: gym.area,
@@ -2067,7 +2218,66 @@ export default function App() {
   const getProductRecommendationNeed = (product) =>
     `请结合我的攀岩记录判断「${product.name}」是否适合我。请重点看我的常爬难度、最近是否有未过线挑战、训练频率和使用场景；如果数据不足，请告诉我还需要补充脚型、预算、试穿感受或手汗情况。`;
 
+  const formatRouteHistoryRecommendation = (structuredRecommendation, fallbackText) => {
+    if (!structuredRecommendation || typeof structuredRecommendation !== 'object') {
+      return fallbackText || '路线推荐已完成，但结果格式需要再试一次。';
+    }
+
+    const recommendations = Array.isArray(structuredRecommendation.recommendations)
+      ? structuredRecommendation.recommendations.slice(0, 3)
+      : [];
+    const summary = structuredRecommendation.summary || {};
+    const skillGaps = Array.isArray(structuredRecommendation.skillGaps)
+      ? structuredRecommendation.skillGaps.filter(Boolean).slice(0, 4)
+      : [];
+    const lines = [
+      structuredRecommendation.windowLabel || '最近 30 天',
+      structuredRecommendation.headline || summary.primaryPattern || '根据最近记录生成路线推荐。',
+      '',
+      `记录：${summary.routeCount ?? '?'} 条线路 · 已过 ${summary.sentCount ?? '?'} · 待挑战 ${summary.projectCount ?? '?'}`,
+      '',
+      '今天推荐：',
+      ...(recommendations.length
+        ? recommendations.flatMap((item) => [
+            `${item.grade || ''} ${item.style || item.label || '推荐线路'}${item.label && item.style ? ` · ${item.label}` : ''}`.trim(),
+            `成功率 ${item.successRate ?? '?'}%`,
+            item.reason ? `原因：${item.reason}` : '',
+            item.tryPlan ? `尝试：${item.tryPlan}` : '',
+            '',
+          ])
+        : ['暂无足够记录，先补 3-5 条带等级和是否完攀的线路。', '']),
+    ].filter((line) => line !== '');
+
+    if (skillGaps.length) {
+      lines.push('建议补充：');
+      skillGaps.forEach((gap) => lines.push(`- ${gap}`));
+      lines.push('');
+    }
+
+    if (structuredRecommendation.recordingTip) lines.push(`下次记录：${structuredRecommendation.recordingTip}`);
+
+    return lines.join('\n');
+  };
+
+  const getFallbackRouteHistoryRecommendation = (need) => {
+    const recentWindow = buildRecentRouteRecommendationContext(gyms, 30);
+    const bestProjects = recentWindow.recentProjects.slice(0, 3);
+    const gradeText = recentWindow.byGrade
+      .slice(0, 4)
+      .map((item) => `${item.grade} ${item.sent}/${item.total}`)
+      .join('、');
+    const projectLines = bestProjects.length
+      ? bestProjects.map((route) => `${route.grade} ${route.routeName} @ ${route.gymName}\n成功率 ${Math.max(35, Math.min(82, recentWindow.successRate + 12))}%`)
+      : ['V? 技术线\n成功率 60%', 'V? 舒适热身线\n成功率 75%'];
+
+    return `最近 30 天\n${need || '根据你的线路记录生成推荐。'}\n\n记录：${recentWindow.routeCount} 条线路 · 已过 ${recentWindow.sentCount} · 待挑战 ${recentWindow.projectCount}\n等级参考：${gradeText || '还没有足够等级记录'}\n\n今天推荐：\n${projectLines.join('\n\n')}\n\n建议补充：\n- Balance\n- Footwork\n\n下次记录：给线路加上墙型/动作类型备注，推荐会更准。`;
+  };
+
   const getFallbackAiRecommendation = (need, mode = aiMode) => {
+    if (mode === 'route_history') {
+      return getFallbackRouteHistoryRecommendation(need);
+    }
+
     const candidateGyms = gyms.length ? gyms : publicGymStats;
     const routes = gyms.flatMap((gym) =>
       gym.routes.map((route) => ({
@@ -2294,7 +2504,7 @@ export default function App() {
   const handleAiRecommendation = async () => {
     const need = aiNeed.trim();
     const selectedMode = AI_ASSISTANT_MODES.find((mode) => mode.id === aiMode) || AI_ASSISTANT_MODES[0];
-    if (!need) {
+    if (!need && aiMode !== 'route_history') {
       setAiRecommendation(
         aiMode === 'training'
           ? '先写下今天的训练目标，比如“想练脚法，强度不要太大，训练 90 分钟”。'
@@ -2307,6 +2517,8 @@ export default function App() {
     setAiRecommendation(selectedMode.loading);
     setTrainingPlanDraft(null);
     const aiContext = getAiContext();
+    const routeImages = aiMode === 'route_history' ? getRecentRouteImageInputs(gyms, 30) : [];
+    const requestNeed = need || '请根据我最近 30 天的线路记录和线路照片生成今天路线推荐。';
 
     try {
       const response = await fetch('/api/ai-recommendation', {
@@ -2315,9 +2527,10 @@ export default function App() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          need,
+          need: requestNeed,
           mode: aiMode,
           context: aiContext,
+          routeImages,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -2326,27 +2539,30 @@ export default function App() {
         throw new Error(result.error || 'AI 服务暂时不可用。');
       }
 
-      const recommendation = result.recommendation || getFallbackAiRecommendation(need, aiMode);
+      const recommendation =
+        aiMode === 'route_history'
+          ? formatRouteHistoryRecommendation(result.structuredRecommendation, result.recommendation)
+          : result.recommendation || getFallbackAiRecommendation(requestNeed, aiMode);
       setAiRecommendation(recommendation);
       saveAiHistoryEntry({
         mode: aiMode,
-        need,
+        need: aiMode === 'route_history' ? `最近 30 天路线推荐：${requestNeed}` : requestNeed,
         recommendation,
       });
       if (aiMode === 'training') {
-        setTrainingPlanDraft(inferLongTermPlanDraft(need, aiContext));
+        setTrainingPlanDraft(inferLongTermPlanDraft(requestNeed, aiContext));
       }
     } catch (error) {
       console.warn('AI 推荐失败', error);
-      const recommendation = `${error.message}\n\n${getFallbackAiRecommendation(need, aiMode)}`;
+      const recommendation = `${error.message}\n\n${getFallbackAiRecommendation(requestNeed, aiMode)}`;
       setAiRecommendation(recommendation);
       saveAiHistoryEntry({
         mode: aiMode,
-        need,
+        need: aiMode === 'route_history' ? `最近 30 天路线推荐：${requestNeed}` : requestNeed,
         recommendation,
       });
       if (aiMode === 'training') {
-        setTrainingPlanDraft(inferLongTermPlanDraft(need, aiContext));
+        setTrainingPlanDraft(inferLongTermPlanDraft(requestNeed, aiContext));
       }
     } finally {
       setIsAiLoading(false);
@@ -3043,7 +3259,7 @@ export default function App() {
                 <label className="field">
                   <span>
                     <Target size={16} />
-                    你的需求
+                    {aiMode === 'route_history' ? '补充目标' : '你的需求'}
                   </span>
                   <textarea
                     value={aiNeed}
@@ -3068,6 +3284,12 @@ export default function App() {
                     <Dumbbell size={14} />
                     训练
                   </span>
+                  {aiMode === 'route_history' ? (
+                    <span>
+                      <Target size={14} />
+                      记录读图
+                    </span>
+                  ) : null}
                 </div>
                 <button className="ai-btn ai-submit" type="button" onClick={handleAiRecommendation} disabled={isAiLoading}>
                   <Sparkles size={18} />

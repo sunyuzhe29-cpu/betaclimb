@@ -4,6 +4,7 @@ const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
 const DEFAULT_MODEL = 'gpt-4.1-mini';
 const DEFAULT_GATEWAY_MODEL = 'openai/gpt-4.1-mini';
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-chat';
+const ROUTE_HISTORY_MODE = 'route_history';
 
 const json = (response, status, body) => {
   response.statusCode = status;
@@ -40,11 +41,33 @@ const getOutputText = (payload) => {
     .trim();
 };
 
+const parseJsonOutput = (text) => {
+  const trimmedText = String(text || '').trim();
+  if (!trimmedText) return null;
+
+  try {
+    return JSON.parse(trimmedText);
+  } catch {
+    const jsonMatch = trimmedText.match(/```(?:json)?\s*([\s\S]*?)```/) || trimmedText.match(/(\{[\s\S]*\})/);
+    if (!jsonMatch) return null;
+
+    try {
+      return JSON.parse(jsonMatch[1]);
+    } catch {
+      return null;
+    }
+  }
+};
+
 const getPrompt = ({ mode, need, context }) => `
 你是 BetaClimb 的攀岩 AI 助手。请用简体中文回答。
 
 当前模式：
-${mode === 'training' ? '训练计划：重点输出训练安排、强度控制、恢复建议。' : '综合咨询：可以讨论线路 beta、装备选择、岩馆选择、当天攀爬策略。'}
+${
+  mode === 'training'
+    ? '训练计划：重点输出训练安排、强度控制、恢复建议。'
+    : '综合咨询：可以讨论线路 beta、装备选择、岩馆选择、当天攀爬策略。'
+}
 
 用户今天的描述：
 ${need}
@@ -65,8 +88,49 @@ ${JSON.stringify(context, null, 2)}
 10. 输出要简洁、可执行，适合手机阅读。
 `;
 
-const getProviderConfig = () => {
-  if (process.env.DEEPSEEK_API_KEY) {
+const getRouteHistoryPrompt = ({ need, context, routeImages = [] }) => `
+你是 BetaClimb 的攀岩路线推荐引擎。请在后台分析用户最近 30 天的线路记录、完攀记录、未过线挑战、常去岩馆和公开线路数据，最后只给用户展示总结与推荐，不展示完整分析过程。
+
+用户补充：
+${need || '用户没有补充目标，请根据最近记录推荐今天适合尝试的线路类型。'}
+
+可用数据 JSON：
+${JSON.stringify(context, null, 2)}
+
+随请求附带了 ${routeImages.length} 张最近线路记录图片。每张图片前会有对应 imageRef、线路名、难度、状态和日期。请读取这些图片来判断墙面角度、点型密度、可能动作风格、脚法/力量/动态倾向，并把判断融入推荐，但不要向用户展示逐图识别细节。
+
+要求：
+1. 你可以内部统计最近 30 天成功率、常爬等级、未过线线路、偏好墙型/动作类型和能力短板，并读取线路照片辅助判断风格；不要把逐条/逐图分析过程暴露给用户。
+2. 优先推荐用户记录中真实存在的未过线线路；如果没有足够候选，再推荐“线路类型”，不要编造不存在的具体线路名。
+3. 成功率可以基于同等级/相近等级历史完攀与未过线记录估算；如果样本少，要保守并在 reason 里说明。
+4. 输出必须是严格 JSON，不要 Markdown，不要代码块。
+5. JSON schema:
+{
+  "headline": "一句话总结，比如 最近动态路线过多，今天适合补脚法和平衡",
+  "windowLabel": "最近 30 天",
+  "summary": {
+    "routeCount": 0,
+    "sentCount": 0,
+    "projectCount": 0,
+    "primaryPattern": "一句话概括最近记录"
+  },
+  "recommendations": [
+    {
+      "label": "线路名或线路类型，例如 V4 Slab",
+      "grade": "例如 V4",
+      "style": "例如 Slab / Overhang / Dyno / Balance",
+      "successRate": 0-100,
+      "reason": "面向用户的简短理由",
+      "tryPlan": "今天尝试时的具体策略"
+    }
+  ],
+  "skillGaps": ["Balance", "Footwork"],
+  "recordingTip": "建议用户补充哪些记录让推荐更准"
+}
+`;
+
+const getProviderConfig = ({ requiresVision = false } = {}) => {
+  if (!requiresVision && process.env.DEEPSEEK_API_KEY) {
     return {
       apiKey: process.env.DEEPSEEK_API_KEY,
       apiUrl: process.env.DEEPSEEK_API_URL || DEEPSEEK_API_URL,
@@ -100,16 +164,17 @@ const getProviderConfig = () => {
   return null;
 };
 
-const getProviderBody = ({ provider, need, mode, context }) => {
+const getProviderBody = ({ provider, need, mode, context, routeImages = [] }) => {
   const systemContent =
     '你是专业、谨慎、务实的攀岩助手。你会根据用户记录、公开线路数据和用户当天目标，输出安全且可执行的建议。';
-  const userContent = getPrompt({
-    mode,
-    need,
-    context,
-  });
+  const isRouteHistoryMode = mode === ROUTE_HISTORY_MODE;
+  const userContent = isRouteHistoryMode ? getRouteHistoryPrompt({ need, context, routeImages }) : getPrompt({ mode, need, context });
 
   if (provider.protocol === 'chat-completions') {
+    if (isRouteHistoryMode && routeImages.length) {
+      throw new Error('路线推荐需要读取线路照片，请配置 OpenAI 或 Vercel AI Gateway 这类支持视觉输入的模型。');
+    }
+
     return {
       model: provider.model,
       messages: [
@@ -127,6 +192,19 @@ const getProviderBody = ({ provider, need, mode, context }) => {
     };
   }
 
+  const routeImageContent = routeImages.flatMap((routeImage) => [
+    {
+      type: 'input_text',
+      text: `线路图片 ${routeImage.imageRef}: ${routeImage.grade || '未定级'} ${routeImage.routeName || '未命名线路'} @ ${
+        routeImage.gymName || '未知岩馆'
+      }；状态：${routeImage.status === 'sent' ? '已过线' : '待挑战'}；日期：${routeImage.activityDate || '未知'}`,
+    },
+    {
+      type: 'input_image',
+      image_url: routeImage.imageUrl,
+    },
+  ]);
+
   return {
     model: provider.model,
     input: [
@@ -136,10 +214,19 @@ const getProviderBody = ({ provider, need, mode, context }) => {
       },
       {
         role: 'user',
-        content: userContent,
+        content:
+          isRouteHistoryMode && routeImageContent.length
+            ? [
+                {
+                  type: 'input_text',
+                  text: userContent,
+                },
+                ...routeImageContent,
+              ]
+            : userContent,
       },
     ],
-    max_output_tokens: 1100,
+    max_output_tokens: isRouteHistoryMode ? 1400 : 1100,
   };
 };
 
@@ -175,12 +262,6 @@ export default async function handler(request, response) {
     return;
   }
 
-  const provider = getProviderConfig();
-  if (!provider) {
-    json(response, 500, { error: '后端还没有可用的 AI 鉴权。请配置 DEEPSEEK_API_KEY、Vercel AI Gateway 或 OPENAI_API_KEY。' });
-    return;
-  }
-
   let body;
   try {
     body = await readJsonBody(request);
@@ -189,10 +270,35 @@ export default async function handler(request, response) {
     return;
   }
 
-  const need = String(body.need || '').trim();
-  const mode = body.mode === 'training' ? 'training' : 'consult';
+  const mode = body.mode === 'training' ? 'training' : body.mode === ROUTE_HISTORY_MODE ? ROUTE_HISTORY_MODE : 'consult';
+  const need = String(body.need || '').trim() || (mode === ROUTE_HISTORY_MODE ? '请根据我最近 30 天的线路记录生成今天路线推荐。' : '');
+  const routeImages = Array.isArray(body.routeImages)
+    ? body.routeImages
+        .filter((routeImage) => /^data:image\/|^https?:\/\//i.test(String(routeImage?.imageUrl || '')))
+        .slice(0, 8)
+        .map((routeImage) => ({
+          imageRef: String(routeImage.imageRef || '').slice(0, 40),
+          imageUrl: String(routeImage.imageUrl || ''),
+          gymName: String(routeImage.gymName || '').slice(0, 80),
+          routeName: String(routeImage.routeName || '').slice(0, 80),
+          grade: String(routeImage.grade || '').slice(0, 24),
+          status: routeImage.status === 'sent' ? 'sent' : 'project',
+          activityDate: String(routeImage.activityDate || '').slice(0, 20),
+        }))
+    : [];
   if (!need) {
     json(response, 400, { error: '请先描述今天的攀岩需求。' });
+    return;
+  }
+
+  const provider = getProviderConfig({ requiresVision: mode === ROUTE_HISTORY_MODE && routeImages.length > 0 });
+  if (!provider) {
+    json(response, 500, {
+      error:
+        mode === ROUTE_HISTORY_MODE && routeImages.length > 0
+          ? '路线推荐需要读取线路照片，请配置 OpenAI 或 Vercel AI Gateway 这类支持视觉输入的模型。'
+          : '后端还没有可用的 AI 鉴权。请配置 DEEPSEEK_API_KEY、Vercel AI Gateway 或 OPENAI_API_KEY。',
+    });
     return;
   }
 
@@ -209,6 +315,7 @@ export default async function handler(request, response) {
           need,
           mode,
           context: body.context || {},
+          routeImages,
         }),
       }),
     });
@@ -221,8 +328,12 @@ export default async function handler(request, response) {
       return;
     }
 
+    const outputText = getOutputText(payload);
+    const structuredRecommendation = mode === ROUTE_HISTORY_MODE ? parseJsonOutput(outputText) : null;
+
     json(response, 200, {
-      recommendation: getOutputText(payload),
+      recommendation: outputText,
+      structuredRecommendation,
       model: payload.model,
       provider: provider.provider,
     });
